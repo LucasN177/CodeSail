@@ -29,7 +29,7 @@ It connects directly to your **GitHub** repositories using the GitHub REST API, 
 ## 🚀 Getting Started (Local Development)
 
 ### Prerequisites
-- [.NET SDK](https://dotnet.microsoft.com/download) (Version 8.0 or newer)
+- [.NET SDK](https://dotnet.microsoft.com/download) (Version 10.0 or newer)
 - A GitHub account and a **Personal Access Token (Fine-grained)** with `contents:write` permissions.
 
 ### Setup
@@ -52,12 +52,7 @@ It connects directly to your **GitHub** repositories using the GitHub REST API, 
 
 ---
 
-## 📱 Deploying as a PWA
-
-Because CodeSail is entirely static, you can host it completely free of charge on:
-- **GitHub Pages**
-- **Vercel**
-- **Cloudflare Pages**
+## 📱 Using as a PWA
 
 Once deployed, simply open the URL in **Safari on your iPad**, tap the **Share** button, and select **"Add to Home Screen"**. CodeSail will launch as a standalone, full-screen app without browser address bars.
 
