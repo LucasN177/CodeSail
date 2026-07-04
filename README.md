@@ -18,11 +18,11 @@ It connects directly to your **GitHub** repositories using the GitHub REST API, 
 
 ## 🛠️ Tech Stack
 
-- **Frontend Framework:** Blazor WebAssembly (.NET 8.0 / .NET 9.0)
+- **Frontend Framework:** Blazor WebAssembly (.NET 10.0)
 - **Editor UI:** Monaco Editor via `BlazorMonaco`
 - **GitHub Client:** `Octokit.NET`
 - **Local Storage:** IndexedDB (via browser interop)
-- **Styling:** Tailwind CSS / Modern Minimal CSS custom design
+- **Styling:** Tailwind CSS / Modern Minimal CSS custom design / MudBlazor
 
 ---
 
