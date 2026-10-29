@@ -1,0 +1,8 @@
+.markdown-frame {
+    display: block;
+    width: 100%;
+    height: 120px;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 6px;
+    background: #1e1e1e;
+}

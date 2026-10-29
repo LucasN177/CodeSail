@@ -212,6 +212,47 @@ public sealed class WorkspaceService(IGitHubService gitHub, IFileCache cache)
         return new BranchInfo(name, head);
     }
 
+    public Task<BranchComparison> CompareBranchesAsync(string owner, string repo, string baseBranch, string headBranch) =>
+        gitHub.CompareAsync(owner, repo, baseBranch, headBranch);
+
+    /// <summary>Anzahl lokal geänderter Dateien je Branch eines Repositorys (für die Branch-Liste).</summary>
+    public async Task<IReadOnlyDictionary<string, int>> GetLocalChangeCountsAsync(string owner, string repo) =>
+        (await cache.GetFilesAsync(CacheKeys.Repo(owner, repo) + "@"))
+            .Where(f => f.IsDirty)
+            .GroupBy(f => f.Branch)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+    /// <summary>
+    /// Löscht den Branch auf GitHub und entfernt seine lokalen Kopien. Der Standard-Branch und
+    /// geschützte Branches werden nicht angetastet.
+    /// </summary>
+    public async Task DeleteBranchAsync(string owner, string repo, BranchInfo branch, string defaultBranch)
+    {
+        if (branch.Name == defaultBranch)
+            throw new InvalidOperationException("Der Standard-Branch kann nicht gelöscht werden.");
+        if (branch.Protected)
+            throw new InvalidOperationException($"{branch.Name} ist geschützt und kann nicht gelöscht werden.");
+
+        await gitHub.DeleteBranchAsync(owner, repo, branch.Name);
+        foreach (var file in await cache.GetFilesAsync(CacheKeys.Branch(owner, repo, branch.Name) + ":"))
+            await cache.RemoveFileAsync(file.Key);
+    }
+
+    /// <summary>Benennt den Branch um; lokale Kopien und Änderungen ziehen unter den neuen Namen um.</summary>
+    public async Task<BranchInfo> RenameBranchAsync(string owner, string repo, BranchInfo branch, string newName, IEnumerable<BranchInfo> existing)
+    {
+        newName = ValidateBranchName(newName, existing);
+        await gitHub.RenameBranchAsync(owner, repo, branch.Name, newName);
+
+        foreach (var file in await cache.GetFilesAsync(CacheKeys.Branch(owner, repo, branch.Name) + ":"))
+        {
+            await cache.SaveFileAsync(file with { Key = CacheKeys.File(owner, repo, newName, file.Path), Branch = newName });
+            await cache.RemoveFileAsync(file.Key);
+        }
+
+        return branch with { Name = newName };
+    }
+
     /// <summary>Prüft die wichtigsten Git-Regeln für Branch-Namen (git check-ref-format).</summary>
     public static string ValidateBranchName(string name, IEnumerable<BranchInfo> existing)
     {

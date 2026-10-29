@@ -21,6 +21,7 @@ builder.Services.AddScoped<IFileCache, IndexedDbFileCache>();
 builder.Services.AddScoped<BrowserEnvironment>();
 builder.Services.AddScoped<WorkspaceService>();
 builder.Services.AddScoped<CommitService>();
+builder.Services.AddScoped<PullRequestService>();
 builder.Services.AddScoped<PreviewService>();
 builder.Services.AddScoped<AuthState>();
 

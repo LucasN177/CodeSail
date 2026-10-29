@@ -1,0 +1,43 @@
+@* Auswahl der Merge-Methode, optional mit Löschen des Quell-Branches. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudText Class="mb-2"><b>@PullRequest.Summary.Head</b> wird in <b>@PullRequest.Summary.Base</b> übernommen.</MudText>
+        <MudRadioGroup T="MergeMethod" @bind-Value="_method">
+            <MudRadio Value="MergeMethod.Merge" Color="Color.Primary">
+                <b>Merge-Commit</b> – alle Commits bleiben erhalten
+            </MudRadio>
+            <MudRadio Value="MergeMethod.Squash" Color="Color.Primary">
+                <b>Squash</b> – alle Änderungen als ein Commit
+            </MudRadio>
+            <MudRadio Value="MergeMethod.Rebase" Color="Color.Primary">
+                <b>Rebase</b> – Commits einzeln auf @PullRequest.Summary.Base setzen
+            </MudRadio>
+        </MudRadioGroup>
+        @if (CanDeleteBranch)
+        {
+            <MudCheckBox @bind-Value="_deleteBranch" Color="Color.Primary" Dense="true" Class="mt-2"
+                         Label="@($"Branch {PullRequest.Summary.Head} danach löschen")" />
+        }
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-2">
+            Welche Methoden erlaubt sind, legen die Einstellungen des Repositorys fest. GitHub lehnt nicht erlaubte ab.
+        </MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => Dialog.Cancel()">Abbrechen</MudButton>
+        <MudButton Color="Color.Success" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.CallMerge"
+                   OnClick="() => Dialog.Close(DialogResult.Ok((_method, _deleteBranch && CanDeleteBranch)))">Mergen</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private MergeMethod _method = MergeMethod.Merge;
+    private bool _deleteBranch = true;
+
+    [CascadingParameter] public IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public PullRequestDetails PullRequest { get; set; } = default!;
+
+    /// <summary>Nur Branches im selben Repository; Branches aus Forks gehören jemand anderem.</summary>
+    [Parameter] public bool CanDeleteBranch { get; set; }
+}

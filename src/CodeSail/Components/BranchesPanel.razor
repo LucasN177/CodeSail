@@ -1,0 +1,96 @@
+@* Branch-Verwaltung: wechseln, anlegen, vergleichen, umbenennen, löschen, Pull Request starten. *@
+
+<div class="d-flex align-center gap-1 mb-2">
+    <MudTextField @bind-Value="_filter" Placeholder="Branch suchen…" Variant="Variant.Outlined" Margin="Margin.Dense"
+                  Immediate="true" Clearable="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                  spellcheck="false" autocapitalize="off" />
+    <MudTooltip Text="@($"Neuer Branch von {Current}")">
+        <MudIconButton Icon="@Icons.Material.Filled.AddCircleOutline" Disabled="@(!Online || Busy)"
+                       OnClick="() => CreateFrom.InvokeAsync(CurrentBranch)" aria-label="Neuen Branch anlegen" />
+    </MudTooltip>
+</div>
+
+@if (!Online)
+{
+    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+        Offline: Wechseln geht mit der Offline-Kopie. Anlegen, Löschen und Vergleichen erst wieder mit Verbindung.
+    </MudAlert>
+}
+
+@if (Filtered.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="pa-2 mud-text-secondary">Kein Branch gefunden.</MudText>
+}
+
+<MudList T="string" Dense="true">
+    @foreach (var branch in Filtered)
+    {
+        var isCurrent = branch.Name == Current;
+        var isDefault = branch.Name == DefaultBranch;
+        var local = LocalChanges.GetValueOrDefault(branch.Name);
+
+        <MudListItem T="string" Value="branch.Name" OnClick="() => Select(branch)"
+                     Class="@(isCurrent ? "mud-selected-item" : "")">
+            <div class="d-flex align-center gap-2">
+                <MudIcon Size="Size.Small" Color="@(isCurrent ? Color.Primary : Color.Default)"
+                         Icon="@(isDefault ? Icons.Material.Filled.Star : branch.Protected ? Icons.Material.Filled.Shield : Icons.Material.Filled.AccountTree)" />
+                <div class="flex-grow-1" style="min-width: 0">
+                    <MudText Typo="Typo.body2" Class="text-truncate" title="@branch.Name">@branch.Name</MudText>
+                    <div class="branch-tags">
+                        @if (isCurrent) { <span class="branch-tag current">aktuell</span> }
+                        @if (isDefault) { <span class="branch-tag">Standard</span> }
+                        @if (branch.Protected) { <span class="branch-tag">geschützt</span> }
+                        @if (local > 0) { <span class="branch-tag local" title="Lokale, noch nicht committete Änderungen">@local lokal</span> }
+                    </div>
+                </div>
+                <span @onclick:stopPropagation="true">
+                    <MudMenu Icon="@Icons.Material.Filled.MoreVert" Size="Size.Small" Dense="true"
+                             AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" aria-label="@($"Aktionen für {branch.Name}")">
+                        <MudMenuItem Icon="@Icons.Material.Filled.SwapHoriz" Disabled="isCurrent"
+                                     OnClick="() => Switch.InvokeAsync(branch)">Wechseln</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.CompareArrows" Disabled="@(isDefault || !Online)"
+                                     OnClick="() => Compare.InvokeAsync(branch)">Mit @DefaultBranch vergleichen</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.CallMerge" Disabled="@(isDefault || !Online)"
+                                     OnClick="() => CreatePullRequest.InvokeAsync(branch)">Pull Request erstellen</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.AddCircleOutline" Disabled="!Online"
+                                     OnClick="() => CreateFrom.InvokeAsync(branch)">Neuer Branch von hier</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.DriveFileRenameOutline" Disabled="@(!Online || branch.Protected)"
+                                     OnClick="() => Rename.InvokeAsync(branch)">Umbenennen</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.Delete" IconColor="Color.Error"
+                                     Disabled="@(isDefault || branch.Protected || !Online)"
+                                     OnClick="() => Delete.InvokeAsync(branch)">Löschen</MudMenuItem>
+                    </MudMenu>
+                </span>
+            </div>
+        </MudListItem>
+    }
+</MudList>
+
+@code {
+    private string? _filter;
+
+    [Parameter, EditorRequired] public IReadOnlyList<BranchInfo> Branches { get; set; } = [];
+    [Parameter, EditorRequired] public string Current { get; set; } = "";
+    [Parameter, EditorRequired] public string DefaultBranch { get; set; } = "";
+    [Parameter] public IReadOnlyDictionary<string, int> LocalChanges { get; set; } = new Dictionary<string, int>();
+    [Parameter] public bool Online { get; set; } = true;
+    [Parameter] public bool Busy { get; set; }
+
+    [Parameter] public EventCallback<BranchInfo> Switch { get; set; }
+    [Parameter] public EventCallback<BranchInfo> CreateFrom { get; set; }
+    [Parameter] public EventCallback<BranchInfo> Compare { get; set; }
+    [Parameter] public EventCallback<BranchInfo> CreatePullRequest { get; set; }
+    [Parameter] public EventCallback<BranchInfo> Rename { get; set; }
+    [Parameter] public EventCallback<BranchInfo> Delete { get; set; }
+
+    private BranchInfo CurrentBranch => Branches.FirstOrDefault(b => b.Name == Current) ?? Branches[0];
+
+    /// <summary>Aktueller und Standard-Branch oben, danach alphabetisch.</summary>
+    private List<BranchInfo> Filtered => Branches
+        .Where(b => string.IsNullOrWhiteSpace(_filter) || b.Name.Contains(_filter.Trim(), StringComparison.OrdinalIgnoreCase))
+        .OrderBy(b => b.Name == Current ? 0 : b.Name == DefaultBranch ? 1 : 2)
+        .ThenBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    private Task Select(BranchInfo branch) => branch.Name == Current ? Task.CompletedTask : Switch.InvokeAsync(branch);
+}

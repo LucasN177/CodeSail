@@ -6,7 +6,7 @@
 }
 
 .explorer {
-    flex: 0 0 300px;
+    flex: 0 0 320px;
     padding: 8px;
     overflow-y: auto;
     border-right: 1px solid var(--mud-palette-lines-default);

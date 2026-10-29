@@ -1,0 +1,262 @@
+@* Detailansicht eines Pull Requests im Hauptbereich: Beschreibung, Dateien mit Diff, Mergen/Schließen. *@
+@inject PullRequestService PullRequests
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<div class="pr-view">
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="ma-4">
+            @_error
+            <MudButton Variant="Variant.Text" Color="Color.Inherit" Size="Size.Small" OnClick="LoadAsync">Erneut versuchen</MudButton>
+        </MudAlert>
+    }
+    else if (_details is null)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else
+    {
+        var pr = _details.Summary;
+        <header class="pr-header">
+            <div class="d-flex align-center gap-2 flex-wrap">
+                <span class="pr-state" style="@($"background: {PullRequestsPanel.StateColor(pr)}")">
+                    <MudIcon Icon="@PullRequestsPanel.StateIcon(pr)" Size="Size.Small" /> @PullRequestsPanel.StateLabel(pr)
+                </span>
+                <MudText Typo="Typo.h6" Class="pr-heading">@pr.Title <span class="mud-text-secondary">#@pr.Number</span></MudText>
+            </div>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mt-1">
+                <b>@pr.Author</b> möchte <code>@pr.Head</code> in <code>@pr.Base</code> übernehmen ·
+                @_details.Commits @(_details.Commits == 1 ? "Commit" : "Commits") ·
+                <span class="pr-add">+@_details.Additions</span> <span class="pr-del">−@_details.Deletions</span> ·
+                @_details.ChangedFiles @(_details.ChangedFiles == 1 ? "Datei" : "Dateien")
+            </MudText>
+
+            <div class="d-flex align-center gap-2 flex-wrap mt-3">
+                @if (pr.State == PullRequestState.Open)
+                {
+                    <MudTooltip Text="@MergeHint">
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.CallMerge"
+                                   Disabled="@(!_details.CanMerge || _busy || !Online)" OnClick="MergeAsync">Mergen</MudButton>
+                    </MudTooltip>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.Block"
+                               Disabled="@(_busy || !Online)" OnClick="() => SetOpenAsync(false)">Schließen</MudButton>
+                }
+                else if (pr.State == PullRequestState.Closed)
+                {
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Replay"
+                               Disabled="@(_busy || !Online)" OnClick="() => SetOpenAsync(true)">Wieder öffnen</MudButton>
+                }
+                @if (CanOpenBranch)
+                {
+                    <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.AccountTree"
+                               OnClick="() => OpenBranch.InvokeAsync(pr.Head)">Branch @pr.Head öffnen</MudButton>
+                }
+                <MudButton Variant="Variant.Text" StartIcon="@Icons.Custom.Brands.GitHub" Href="@pr.HtmlUrl" Target="_blank">Auf GitHub</MudButton>
+            </div>
+            @if (pr.State == PullRequestState.Open && MergeProblem is { } problem)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">@problem</MudAlert>
+            }
+        </header>
+
+        <section class="pr-section">
+            @if (string.IsNullOrWhiteSpace(_details.Body))
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">Keine Beschreibung.</MudText>
+            }
+            else
+            {
+                <MarkdownFrame Markdown="@_details.Body" Title="@($"Beschreibung von #{pr.Number}")" />
+            }
+        </section>
+
+        <section class="pr-section">
+            <MudText Typo="Typo.subtitle1" Class="mb-1">Geänderte Dateien</MudText>
+            @if (_files is null)
+            {
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+            }
+            else
+            {
+                @if (_details.ChangedFiles > _files.Count)
+                {
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-1">
+                        Angezeigt werden die ersten @_files.Count von @_details.ChangedFiles Dateien.
+                    </MudText>
+                }
+                @foreach (var file in _files)
+                {
+                    var open = _expanded.Contains(file.Path);
+                    <div class="pr-file">
+                        <div class="pr-file-header" @onclick="() => Toggle(file.Path)" role="button" aria-expanded="@open">
+                            <MudIcon Icon="@(open ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)" Size="Size.Small" />
+                            <span class="pr-file-status pr-status-@file.Status">@StatusLetter(file.Status)</span>
+                            <span class="pr-file-path" title="@file.Path">
+                                @if (file.PreviousPath is { } previous) { <span class="mud-text-secondary">@previous → </span> }
+                                @file.Path
+                            </span>
+                            <span class="pr-add">+@file.Additions</span>
+                            <span class="pr-del">−@file.Deletions</span>
+                        </div>
+                        @if (open)
+                        {
+                            @if (file.Patch is null)
+                            {
+                                <div class="pr-patch-empty">Kein Diff verfügbar (Binärdatei oder zu groß). Auf GitHub ansehen.</div>
+                            }
+                            else
+                            {
+                                <pre class="pr-patch">@foreach (var line in file.Patch.Split('\n')){<span class="@PatchClass(line)">@line
+</span>}</pre>
+                            }
+                        }
+                    </div>
+                }
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private PullRequestDetails? _details;
+    private IReadOnlyList<PullRequestFile>? _files;
+    private readonly HashSet<string> _expanded = [];
+    private string? _error;
+    private bool _busy;
+    private (string, string, int)? _loaded;
+
+    [Parameter, EditorRequired] public string Owner { get; set; } = "";
+    [Parameter, EditorRequired] public string Repo { get; set; } = "";
+    [Parameter, EditorRequired] public int Number { get; set; }
+    [Parameter] public IReadOnlyCollection<string> BranchNames { get; set; } = [];
+    [Parameter] public string DefaultBranch { get; set; } = "";
+    [Parameter] public bool Online { get; set; } = true;
+
+    [Parameter] public EventCallback<string> OpenBranch { get; set; }
+
+    /// <summary>Nach Mergen, Schließen oder Wiederöffnen; true, wenn dabei ein Branch gelöscht wurde.</summary>
+    [Parameter] public EventCallback<bool> Changed { get; set; }
+
+    private bool CanOpenBranch => _details is { } d
+        && PullRequestService.IsSameRepository(Owner, Repo, d.Summary)
+        && BranchNames.Contains(d.Summary.Head);
+
+    private string? MergeProblem => _details switch
+    {
+        { Summary.Draft: true } => "Entwurf: Markiere den Pull Request auf GitHub als bereit, um ihn zu mergen.",
+        { Mergeable: false } => "Es gibt Konflikte mit dem Ziel-Branch. Löse sie im Branch oder auf GitHub.",
+        { Mergeable: null } => "GitHub prüft noch, ob sich der Pull Request mergen lässt. Lade die Ansicht gleich neu.",
+        _ => null
+    };
+
+    private string MergeHint => MergeProblem ?? "Pull Request mergen";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded != (Owner, Repo, Number))
+            await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loaded = (Owner, Repo, Number);
+        _details = null;
+        _files = null;
+        _error = null;
+        _expanded.Clear();
+        try
+        {
+            _details = await PullRequests.GetAsync(Owner, Repo, Number);
+            StateHasChanged();
+            _files = await PullRequests.GetFilesAsync(Owner, Repo, Number);
+            // Kleine Pull Requests direkt aufgeklappt zeigen
+            if (_files.Count <= 3)
+                _expanded.UnionWith(_files.Select(f => f.Path));
+        }
+        catch (Exception ex)
+        {
+            _error = GitHubErrors.Describe(ex);
+        }
+    }
+
+    private async Task MergeAsync()
+    {
+        if (_details is null)
+            return;
+
+        var canDelete = PullRequestService.IsSameRepository(Owner, Repo, _details.Summary) && _details.Summary.Head != DefaultBranch;
+        var dialog = await Dialogs.ShowAsync<MergeDialog>($"#{_details.Summary.Number} mergen",
+            new DialogParameters<MergeDialog> { { x => x.PullRequest, _details }, { x => x.CanDeleteBranch, canDelete } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is not { Canceled: false, Data: ValueTuple<MergeMethod, bool> choice })
+            return;
+
+        _busy = true;
+        try
+        {
+            var deleted = await PullRequests.MergeAsync(Owner, Repo, _details, choice.Item1, choice.Item2);
+            Snackbar.Add(deleted ? $"Gemergt, Branch {_details.Summary.Head} gelöscht." : "Pull Request gemergt.", Severity.Success);
+            await LoadAsync();
+            await Changed.InvokeAsync(deleted);
+        }
+        catch (GitHubApiException ex) when (ex.Status == System.Net.HttpStatusCode.Conflict)
+        {
+            Snackbar.Add("Der Branch hat sich inzwischen geändert. Die Ansicht wird neu geladen, bitte prüfe und merge erneut.", Severity.Warning);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(GitHubErrors.Describe(ex), Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SetOpenAsync(bool open)
+    {
+        if (_details is null)
+            return;
+
+        _busy = true;
+        try
+        {
+            await PullRequests.SetOpenAsync(Owner, Repo, Number, open);
+            Snackbar.Add(open ? "Pull Request wieder geöffnet." : "Pull Request geschlossen.", Severity.Success);
+            await LoadAsync();
+            await Changed.InvokeAsync(false);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(GitHubErrors.Describe(ex), Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void Toggle(string path)
+    {
+        if (!_expanded.Remove(path))
+            _expanded.Add(path);
+    }
+
+    private static string StatusLetter(string status) => status switch
+    {
+        "added" => "A",
+        "removed" => "D",
+        "renamed" => "R",
+        _ => "M"
+    };
+
+    private static string PatchClass(string line) => line switch
+    {
+        _ when line.StartsWith("@@") => "patch-hunk",
+        _ when line.StartsWith('+') => "patch-add",
+        _ when line.StartsWith('-') => "patch-del",
+        _ => ""
+    };
+}

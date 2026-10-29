@@ -44,7 +44,27 @@ public interface IGitHubService
     Task CreateFirstFileAsync(string owner, string name, string path, string content, string message);
 
     /// <summary>Erstellt einen Pull Request und liefert dessen URL.</summary>
-    Task<string> CreatePullRequestAsync(string owner, string name, string title, string body, string head, string baseBranch);
+    Task<string> CreatePullRequestAsync(string owner, string name, string title, string body, string head, string baseBranch, bool draft = false);
+
+    Task DeleteBranchAsync(string owner, string name, string branch);
+
+    /// <summary>Benennt einen Branch um; GitHub passt offene Pull Requests dabei automatisch an.</summary>
+    Task RenameBranchAsync(string owner, string name, string branch, string newName);
+
+    Task<BranchComparison> CompareAsync(string owner, string name, string baseBranch, string headBranch);
+
+    /// <summary>Die 50 zuletzt aktualisierten Pull Requests.</summary>
+    Task<IReadOnlyList<PullRequestSummary>> GetPullRequestsAsync(string owner, string name, PullRequestFilter filter);
+
+    Task<PullRequestDetails> GetPullRequestAsync(string owner, string name, int number);
+
+    Task<IReadOnlyList<PullRequestFile>> GetPullRequestFilesAsync(string owner, string name, int number);
+
+    /// <param name="headSha">Nur mergen, wenn der Branch noch auf diesem Commit steht (sonst 409).</param>
+    Task MergePullRequestAsync(string owner, string name, int number, MergeMethod method, string headSha);
+
+    /// <summary>Schließt einen Pull Request bzw. öffnet ihn wieder.</summary>
+    Task SetPullRequestOpenAsync(string owner, string name, int number, bool open);
 }
 
 /// <param name="Content">Neuer Inhalt; null löscht die Datei.</param>

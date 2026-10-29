@@ -1,0 +1,6 @@
+.compare-files {
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 0.85rem;
+    padding: 4px 0;
+}

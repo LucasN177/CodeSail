@@ -4,6 +4,7 @@ using CodeSail.Models;
 using CodeSail.Services.Storage;
 using Octokit;
 using Octokit.Internal;
+using PullRequestFile = CodeSail.Models.PullRequestFile;
 
 namespace CodeSail.Services.GitHub;
 
@@ -38,7 +39,7 @@ public sealed class GitHubService(ITokenStore tokenStore, HttpClient http) : IGi
 
     public Task<IReadOnlyList<BranchInfo>> GetBranchesAsync(string owner, string name) =>
         RunAsync<IReadOnlyList<BranchInfo>>(async c =>
-            (await c.Repository.Branch.GetAll(owner, name)).Select(b => new BranchInfo(b.Name, b.Commit.Sha)).ToList());
+            (await c.Repository.Branch.GetAll(owner, name)).Select(b => new BranchInfo(b.Name, b.Commit.Sha, b.Protected)).ToList());
 
     public Task<TreeSnapshot> GetTreeAsync(string owner, string name, string commitSha) =>
         RunAsync(async c =>
@@ -127,12 +128,119 @@ public sealed class GitHubService(ITokenStore tokenStore, HttpClient http) : IGi
         SendAsync(HttpMethod.Post, $"{RepoPath(owner, name)}/git/refs",
             new { @ref = $"refs/heads/{branch}", sha = commitSha });
 
-    public async Task<string> CreatePullRequestAsync(string owner, string name, string title, string body, string head, string baseBranch)
+    public async Task<string> CreatePullRequestAsync(string owner, string name, string title, string body, string head, string baseBranch, bool draft = false)
     {
         var json = await SendAsync(HttpMethod.Post, $"{RepoPath(owner, name)}/pulls",
-            new { title, body, head, @base = baseBranch });
+            new { title, body, head, @base = baseBranch, draft });
         return json.GetProperty("html_url").GetString()!;
     }
+
+    public Task DeleteBranchAsync(string owner, string name, string branch) =>
+        SendAsync(HttpMethod.Delete, $"{RepoPath(owner, name)}/git/refs/heads/{BranchPath(branch)}");
+
+    public Task RenameBranchAsync(string owner, string name, string branch, string newName) =>
+        SendAsync(HttpMethod.Post, $"{RepoPath(owner, name)}/branches/{BranchPath(branch)}/rename", new { new_name = newName });
+
+    public async Task<BranchComparison> CompareAsync(string owner, string name, string baseBranch, string headBranch)
+    {
+        var json = await SendAsync(HttpMethod.Get,
+            $"{RepoPath(owner, name)}/compare/{BranchPath(baseBranch)}...{BranchPath(headBranch)}?per_page=100");
+
+        var commits = json.GetProperty("commits").EnumerateArray()
+            .Select(c =>
+            {
+                var commit = c.GetProperty("commit");
+                var author = commit.GetProperty("author");
+                return new CommitSummary(
+                    c.GetProperty("sha").GetString()!,
+                    commit.GetProperty("message").GetString() ?? "",
+                    Login(c, "author") ?? author.GetProperty("name").GetString() ?? "",
+                    author.TryGetProperty("date", out var date) ? date.GetDateTimeOffset() : null);
+            })
+            // Neueste zuerst, wie in der Commit-Liste auf GitHub
+            .Reverse()
+            .ToList();
+
+        var files = json.TryGetProperty("files", out var f)
+            ? f.EnumerateArray().Select(x => x.GetProperty("filename").GetString()!).ToList()
+            : [];
+
+        return new BranchComparison(baseBranch, headBranch,
+            json.GetProperty("ahead_by").GetInt32(), json.GetProperty("behind_by").GetInt32(), commits, files);
+    }
+
+    public async Task<IReadOnlyList<PullRequestSummary>> GetPullRequestsAsync(string owner, string name, PullRequestFilter filter)
+    {
+        var state = filter switch { PullRequestFilter.Closed => "closed", PullRequestFilter.All => "all", _ => "open" };
+        var json = await SendAsync(HttpMethod.Get,
+            $"{RepoPath(owner, name)}/pulls?state={state}&sort=updated&direction=desc&per_page=50");
+        return json.EnumerateArray().Select(ToPullRequestSummary).ToList();
+    }
+
+    public async Task<PullRequestDetails> GetPullRequestAsync(string owner, string name, int number)
+    {
+        var json = await SendAsync(HttpMethod.Get, $"{RepoPath(owner, name)}/pulls/{number}");
+        return new PullRequestDetails(
+            ToPullRequestSummary(json),
+            String(json, "body") ?? "",
+            json.GetProperty("head").GetProperty("sha").GetString()!,
+            json.TryGetProperty("mergeable", out var mergeable) && mergeable.ValueKind != JsonValueKind.Null ? mergeable.GetBoolean() : null,
+            String(json, "mergeable_state") ?? "unknown",
+            json.GetProperty("commits").GetInt32(),
+            json.GetProperty("additions").GetInt32(),
+            json.GetProperty("deletions").GetInt32(),
+            json.GetProperty("changed_files").GetInt32());
+    }
+
+    public async Task<IReadOnlyList<PullRequestFile>> GetPullRequestFilesAsync(string owner, string name, int number)
+    {
+        var json = await SendAsync(HttpMethod.Get, $"{RepoPath(owner, name)}/pulls/{number}/files?per_page=100");
+        return json.EnumerateArray()
+            .Select(f => new PullRequestFile(
+                f.GetProperty("filename").GetString()!,
+                f.GetProperty("status").GetString()!,
+                f.GetProperty("additions").GetInt32(),
+                f.GetProperty("deletions").GetInt32(),
+                String(f, "patch"),
+                String(f, "previous_filename")))
+            .ToList();
+    }
+
+    public Task MergePullRequestAsync(string owner, string name, int number, MergeMethod method, string headSha) =>
+        SendAsync(HttpMethod.Put, $"{RepoPath(owner, name)}/pulls/{number}/merge",
+            new { merge_method = method.ToString().ToLowerInvariant(), sha = headSha });
+
+    public Task SetPullRequestOpenAsync(string owner, string name, int number, bool open) =>
+        SendAsync(HttpMethod.Patch, $"{RepoPath(owner, name)}/pulls/{number}", new { state = open ? "open" : "closed" });
+
+    private static PullRequestSummary ToPullRequestSummary(JsonElement pr)
+    {
+        var merged = pr.TryGetProperty("merged_at", out var mergedAt) && mergedAt.ValueKind != JsonValueKind.Null;
+        var state = merged ? PullRequestState.Merged
+            : String(pr, "state") == "open" ? PullRequestState.Open : PullRequestState.Closed;
+        var head = pr.GetProperty("head");
+        var headRepo = head.TryGetProperty("repo", out var repo) && repo.ValueKind == JsonValueKind.Object
+            ? String(repo, "full_name") ?? ""
+            : "";
+
+        return new PullRequestSummary(
+            pr.GetProperty("number").GetInt32(),
+            String(pr, "title") ?? "",
+            state,
+            pr.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True,
+            Login(pr, "user") ?? "",
+            String(head, "ref") ?? "",
+            headRepo,
+            String(pr.GetProperty("base"), "ref") ?? "",
+            pr.GetProperty("updated_at").GetDateTimeOffset(),
+            String(pr, "html_url") ?? "");
+    }
+
+    private static string? String(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+    private static string? Login(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var user) && user.ValueKind == JsonValueKind.Object ? String(user, "login") : null;
 
     private async Task<JsonElement> SendAsync(HttpMethod method, string path, object? body = null)
     {

@@ -165,6 +165,9 @@ public static partial class PreviewBuilder
           addEventListener("message", e => { if (e.data && typeof e.data.codesailScroll === "number") scrollTo(0, e.data.codesailScroll); });
           let t; addEventListener("scroll", () => { clearTimeout(t); t = setTimeout(() => parent.postMessage({ codesailScroll: scrollY }, "*"), 100); });
           parent.postMessage({ codesailReady: true }, "*");
+          // Höhe melden, damit eingebettete Texte (z. B. PR-Beschreibungen) ohne eigenen Scrollbalken auskommen
+          const h = () => parent.postMessage({ codesailHeight: document.documentElement.scrollHeight }, "*");
+          addEventListener("load", h); new ResizeObserver(h).observe(document.documentElement);
         })();
         </script>
         """;

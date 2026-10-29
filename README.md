@@ -26,7 +26,8 @@ It connects straight to your **GitHub** repositories through the GitHub REST API
 | **Create, rename, move and delete files** | ✅ |
 | **Changes view** with side-by-side diff (Monaco diff editor) | ✅ |
 | **Commit & push** several files as one commit, with conflict detection | ✅ |
-| **Branches**: create, switch, commit to a new branch and open a pull request | ✅ |
+| **Branches tab**: switch, create, compare with the default branch, rename, delete; shows local changes per branch | ✅ |
+| **Pull requests tab**: list, create (incl. drafts), view description and diffs, merge (merge/squash/rebase), close and reopen | ✅ |
 | **Live preview** for Markdown and static HTML (side by side or full, sandboxed) | ✅ |
 | **Run JavaScript and TypeScript** with an output panel (Cmd+Enter), isolated in a sandboxed Web Worker | ✅ |
 | Compile and run C# in the browser (Roslyn) | 🧪 Phase 4B (planned) |
@@ -39,8 +40,9 @@ It connects straight to your **GitHub** repositories through the GitHub REST API
 3. New files: **Files → New file** (use `/` for folders). Rename, move or delete via the **⋮** menu of the open file.
 4. For Markdown and HTML files, tap the 👁 icon for a live preview. In landscape it opens next to the code (⛶ shows only the preview); in portrait it toggles between code and preview. Images, stylesheets and scripts from the repository are embedded, including your uncommitted edits.
 5. For `.js` and `.ts` files, tap ▶ or press **Cmd + Enter** to run the file. Output from `console.log` appears in a panel at the bottom; tap an error to jump to its line. TypeScript type errors are shown as warnings, syntax errors stop the run. Long-running code can be stopped at any time without freezing the app.
-6. Switch to the **Changes** tab in the sidebar. It lists every changed (**M**), added (**A**) and deleted (**D**) file. Tap one to see a diff, or use ↶ to discard it.
-7. Enter a commit message and tap **Commit & push**. All changes become a single commit.
+6. The sidebar has four tabs (icons): **Files**, **Changes**, **Branches** and **Pull requests**. In **Branches** you switch, create, compare, rename and delete branches; a badge shows how many files have local changes on each branch. In **Pull requests** you create pull requests and open one to read its description, review the changed files and merge or close it.
+7. Switch to the **Changes** tab in the sidebar. It lists every changed (**M**), added (**A**) and deleted (**D**) file. Tap one to see a diff, or use ↶ to discard it.
+8. Enter a commit message and tap **Commit & push**. All changes become a single commit.
    Tick **Commit to a new branch** to create a branch instead, and optionally open a pull request against the current branch.
 
 **Conflicts:** Before pushing, CodeSail checks whether any of your files changed on GitHub since you opened them. Changes to *other* files are fine; your commit simply goes on top. If the same file changed, you choose: commit your version anyway (it replaces the GitHub version) or cancel, discard your change and redo it on the new version. Nothing is merged automatically.
@@ -80,7 +82,7 @@ All dependencies are free and open source.
   - **Repository access:** the repositories you want to edit
   - **Permissions:**
     - *Contents: Read and write*: read files, commit, create branches
-    - *Pull requests: Read and write*: only needed if you want CodeSail to open pull requests
+    - *Pull requests: Read and write*: only needed for the pull requests tab (list, create, merge, close)
     - *Metadata: Read* is added automatically
 
 ### Run
@@ -99,10 +101,10 @@ dotnet test
 ### Project structure
 ```
 src/CodeSail/
-  Components/        FileExplorer, SourceEditor + DiffView (Monaco), PreviewPane, RunPanel, ChangesPanel, dialogs
+  Components/        FileExplorer, SourceEditor + DiffView (Monaco), PreviewPane, RunPanel, ChangesPanel, BranchesPanel, PullRequestsPanel + PullRequestView, dialogs
   Layout/            App shell: app bar, auth guard, offline/rate-limit indicators
   Pages/             Home (sign-in), Repos, Workspace
-  Services/          AuthState, WorkspaceService (loading, file operations), CommitService, BrowserEnvironment
+  Services/          AuthState, WorkspaceService (loading, file operations), CommitService, PullRequestService, BrowserEnvironment
   Services/GitHub/   GitHub API (Octokit + direct Git Data calls), tree builder, error messages
   Services/Storage/  Token store, IndexedDB file cache
   Services/Preview/  Markdown/HTML preview (rendering, embedding repo files)
@@ -144,6 +146,7 @@ Open the live URL in **Safari on your iPad**, tap **Share → Add to Home Screen
 - [x] **Phase 2:** Monaco editor integration with offline caching (IndexedDB)
 - [x] **Phase 3:** Commit & branch management workflow
 - [x] **Phase 3b:** Live preview for Markdown and HTML
+- [x] **Phase 3c:** Branch management and pull requests tabs
 - [x] **Phase 4A:** Run JavaScript and TypeScript in the browser
 - [ ] **Phase 4B:** Compile and run C# with Roslyn in a Web Worker *(next: feasibility spike, see the plan)*
 

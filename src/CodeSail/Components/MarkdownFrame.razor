@@ -1,0 +1,45 @@
+@* Zeigt fremden Markdown-Text (z. B. PR-Beschreibungen) abgeschottet an: eigener iframe ohne allow-same-origin,
+   sodass weder eingebettetes HTML noch javascript:-Links an die App herankommen. Die Höhe passt sich dem Inhalt an. *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<iframe @ref="_frame" class="markdown-frame" title="@Title" srcdoc="@_document"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer"></iframe>
+
+@code {
+    private ElementReference _frame;
+    private IJSObjectReference? _module;
+    private string? _document;
+    private string? _rendered;
+
+    [Parameter, EditorRequired] public string Markdown { get; set; } = "";
+    [Parameter] public string Title { get; set; } = "Beschreibung";
+
+    protected override void OnParametersSet()
+    {
+        if (_rendered == Markdown)
+            return;
+        _rendered = Markdown;
+        _document = PreviewBuilder.BuildDocument(PreviewBuilder.RenderMarkdown(Markdown), PreviewKind.Markdown, Title);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/codesail.js");
+        await _module.InvokeVoidAsync("attachPreview", _frame, true);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_module is not null)
+                await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+}

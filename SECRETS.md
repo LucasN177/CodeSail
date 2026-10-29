@@ -36,7 +36,7 @@ Kein Secret nötig. Zum Testen in der App einen **Fine-grained Personal Access T
 - Repository access: nur die Test-Repos
 - Permissions:
   - **Contents: Read and write** – Dateien lesen, committen, Branches anlegen
-  - **Pull requests: Read and write** – nur nötig, wenn CodeSail Pull Requests erstellen soll
+  - **Pull requests: Read and write** – nur nötig für den Reiter „Pull Requests“ (anzeigen, erstellen, mergen, schließen)
   - **Metadata: Read** – wird automatisch gesetzt
 
 Den Token nur in der laufenden App eingeben, nicht in Dateien wie `appsettings.json` speichern.

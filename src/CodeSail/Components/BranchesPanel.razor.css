@@ -1,0 +1,25 @@
+.branch-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 2px;
+}
+
+.branch-tag {
+    font-size: 0.68rem;
+    line-height: 1.5;
+    padding: 0 6px;
+    border-radius: 8px;
+    border: 1px solid var(--mud-palette-lines-default);
+    color: var(--mud-palette-text-secondary);
+}
+
+.branch-tag.current {
+    border-color: var(--mud-palette-primary);
+    color: var(--mud-palette-primary);
+}
+
+.branch-tag.local {
+    border-color: var(--mud-palette-warning);
+    color: var(--mud-palette-warning);
+}

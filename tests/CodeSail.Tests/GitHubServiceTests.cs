@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using CodeSail.Models;
 using CodeSail.Services.GitHub;
 
 namespace CodeSail.Tests;
@@ -92,6 +93,98 @@ public class GitHubServiceTests
         using var body = JsonDocument.Parse(_handler.Body!);
         Assert.Equal("# Hallo", System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(body.RootElement.GetProperty("content").GetString()!)));
         Assert.Equal("Initial commit", body.RootElement.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task DeleteBranch_DeletesRefWithSlashes()
+    {
+        _handler.Respond("");
+
+        await _service.DeleteBranchAsync("o", "r", "feature/x");
+
+        Assert.Equal(HttpMethod.Delete, _handler.Method);
+        Assert.Equal("https://api.github.com/repos/o/r/git/refs/heads/feature/x", _handler.Uri);
+    }
+
+    [Fact]
+    public async Task RenameBranch_SendsNewName()
+    {
+        _handler.Respond("{}");
+
+        await _service.RenameBranchAsync("o", "r", "feature/x", "feature/y");
+
+        Assert.Equal("https://api.github.com/repos/o/r/branches/feature/x/rename", _handler.Uri);
+        Assert.Contains("\"new_name\":\"feature/y\"", _handler.Body);
+    }
+
+    [Fact]
+    public async Task Compare_ParsesCountsCommitsAndFiles()
+    {
+        _handler.Respond("""
+            { "ahead_by": 2, "behind_by": 1,
+              "commits": [
+                { "sha": "aaaaaaa111", "author": { "login": "ada" }, "commit": { "message": "Erster\n\nText", "author": { "name": "Ada", "date": "2026-10-01T10:00:00Z" } } },
+                { "sha": "bbbbbbb222", "author": null, "commit": { "message": "Zweiter", "author": { "name": "Bob L.", "date": "2026-10-02T10:00:00Z" } } } ],
+              "files": [ { "filename": "src/a.cs" } ] }
+            """);
+
+        var result = await _service.CompareAsync("o", "r", "main", "feature/x");
+
+        Assert.Equal("https://api.github.com/repos/o/r/compare/main...feature/x?per_page=100", _handler.Uri);
+        Assert.Equal((2, 1), (result.AheadBy, result.BehindBy));
+        Assert.Equal(["Zweiter", "Erster"], result.Commits.Select(c => c.Title));
+        Assert.Equal("Bob L.", result.Commits[0].Author);
+        Assert.Equal("ada", result.Commits[1].Author);
+        Assert.Equal(["src/a.cs"], result.ChangedFiles);
+    }
+
+    [Fact]
+    public async Task GetPullRequests_MapsStateDraftAndFork()
+    {
+        _handler.Respond("""
+            [ { "number": 5, "title": "Offen", "state": "open", "draft": true, "merged_at": null, "user": { "login": "ada" },
+                "head": { "ref": "feature/x", "repo": { "full_name": "o/r" } }, "base": { "ref": "main" },
+                "updated_at": "2026-10-29T10:00:00Z", "html_url": "https://github.com/o/r/pull/5" },
+              { "number": 4, "title": "Gemergt", "state": "closed", "draft": false, "merged_at": "2026-10-20T10:00:00Z", "user": { "login": "bob" },
+                "head": { "ref": "fix", "repo": null }, "base": { "ref": "main" },
+                "updated_at": "2026-10-20T10:00:00Z", "html_url": "https://github.com/o/r/pull/4" } ]
+            """);
+
+        var result = await _service.GetPullRequestsAsync("o", "r", PullRequestFilter.All);
+
+        Assert.Contains("state=all", _handler.Uri);
+        Assert.Equal((PullRequestState.Open, true, "o/r"), (result[0].State, result[0].Draft, result[0].HeadRepo));
+        Assert.Equal((PullRequestState.Merged, ""), (result[1].State, result[1].HeadRepo));
+    }
+
+    [Fact]
+    public async Task GetPullRequest_ReadsMergeableWhichMayBeUnknown()
+    {
+        _handler.Respond("""
+            { "number": 5, "title": "T", "state": "open", "draft": false, "merged_at": null, "user": { "login": "ada" },
+              "head": { "ref": "feature/x", "sha": "h1", "repo": { "full_name": "o/r" } }, "base": { "ref": "main" },
+              "updated_at": "2026-10-29T10:00:00Z", "html_url": "u", "body": null, "mergeable": null, "mergeable_state": "unknown",
+              "commits": 3, "additions": 10, "deletions": 2, "changed_files": 4 }
+            """);
+
+        var result = await _service.GetPullRequestAsync("o", "r", 5);
+
+        Assert.Null(result.Mergeable);
+        Assert.Equal("", result.Body);
+        Assert.Equal(("h1", 3, 10, 2, 4), (result.HeadSha, result.Commits, result.Additions, result.Deletions, result.ChangedFiles));
+    }
+
+    [Fact]
+    public async Task MergePullRequest_SendsMethodAndHeadSha()
+    {
+        _handler.Respond("""{ "merged": true }""");
+
+        await _service.MergePullRequestAsync("o", "r", 5, MergeMethod.Squash, "h1");
+
+        Assert.Equal(HttpMethod.Put, _handler.Method);
+        Assert.Equal("https://api.github.com/repos/o/r/pulls/5/merge", _handler.Uri);
+        Assert.Contains("\"merge_method\":\"squash\"", _handler.Body);
+        Assert.Contains("\"sha\":\"h1\"", _handler.Body);
     }
 
     [Fact]

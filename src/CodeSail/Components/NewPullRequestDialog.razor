@@ -1,0 +1,86 @@
+@* Formular für einen neuen Pull Request. *@
+
+<MudDialog>
+    <DialogContent>
+        <form id="new-pr-form" @onsubmit="Submit">
+            <div class="d-flex align-center gap-2 mb-2">
+                <MudSelect T="string" @bind-Value="_head" Label="Von (Quelle)" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                    @foreach (var branch in Branches)
+                    {
+                        <MudSelectItem Value="branch.Name">@branch.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudIcon Icon="@Icons.Material.Filled.ArrowForward" />
+                <MudSelect T="string" @bind-Value="_base" Label="Nach (Ziel)" Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true">
+                    @foreach (var branch in Branches)
+                    {
+                        <MudSelectItem Value="branch.Name">@branch.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </div>
+            @if (_head == _base)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">Quelle und Ziel müssen verschiedene Branches sein.</MudAlert>
+            }
+
+            <MudTextField @bind-Value="_title" Label="Titel" Variant="Variant.Outlined" Immediate="true" AutoFocus="true" Class="mb-2" />
+            <MudTextField @bind-Value="_body" Label="Beschreibung (Markdown, optional)" Variant="Variant.Outlined" Lines="5" Immediate="true" />
+            <MudCheckBox @bind-Value="_draft" Color="Color.Primary" Dense="true" Class="mt-1"
+                         Label="Als Entwurf erstellen (noch nicht bereit zum Review)" />
+        </form>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => Dialog.Cancel()">Abbrechen</MudButton>
+        <MudButton ButtonType="ButtonType.Submit" form="new-pr-form" Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="!CanSubmit">Pull Request erstellen</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private string _head = "";
+    private string _base = "";
+    private string _title = "";
+    private string _body = "";
+    private bool _draft;
+
+    [CascadingParameter] public IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public IReadOnlyList<BranchInfo> Branches { get; set; } = [];
+    [Parameter] public string Head { get; set; } = "";
+    [Parameter] public string Base { get; set; } = "";
+
+    private bool CanSubmit => !string.IsNullOrWhiteSpace(_title) && _head != _base && _head.Length > 0 && _base.Length > 0;
+
+    protected override void OnInitialized()
+    {
+        (_head, _base) = (Head, Base);
+        _title = SuggestTitle(Head);
+    }
+
+    private void Submit()
+    {
+        if (CanSubmit)
+            Dialog.Close(DialogResult.Ok(new NewPullRequest(_title.Trim(), _body, _head, _base, _draft)));
+    }
+
+    /// <summary>Titelvorschlag aus dem Branch-Namen, z. B. "feature/neue-seite" → "Neue seite".</summary>
+    public static string SuggestTitle(string branch)
+    {
+        var name = branch[(branch.LastIndexOf('/') + 1)..].Replace('-', ' ').Replace('_', ' ').Trim();
+        return name.Length == 0 ? "" : char.ToUpperInvariant(name[0]) + name[1..];
+    }
+
+    public static async Task<NewPullRequest?> ShowAsync(IDialogService dialogs, IReadOnlyList<BranchInfo> branches, string head, string baseBranch)
+    {
+        var parameters = new DialogParameters<NewPullRequestDialog>
+        {
+            { x => x.Branches, branches },
+            { x => x.Head, head },
+            { x => x.Base, baseBranch }
+        };
+        var dialog = await dialogs.ShowAsync<NewPullRequestDialog>("Neuer Pull Request", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        return result is { Canceled: false, Data: NewPullRequest request } ? request : null;
+    }
+}

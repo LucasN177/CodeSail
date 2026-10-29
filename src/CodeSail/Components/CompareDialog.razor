@@ -1,0 +1,60 @@
+@* Ergebnis des Vergleichs zweier Branches: Commits vor/hinter und geänderte Dateien. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudText Class="mb-3">
+            <b>@Comparison.Head</b> ist
+            <b>@Comparison.AheadBy</b> @(Comparison.AheadBy == 1 ? "Commit" : "Commits") vor und
+            <b>@Comparison.BehindBy</b> @(Comparison.BehindBy == 1 ? "Commit" : "Commits") hinter <b>@Comparison.Base</b>.
+        </MudText>
+
+        @if (Comparison.BehindBy > 0)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-3">
+                @Comparison.Base hat inzwischen neuere Commits. Ein Pull Request zeigt, ob es dabei Konflikte gibt.
+            </MudAlert>
+        }
+
+        @if (Comparison.Commits.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2">Commits nur auf @Comparison.Head</MudText>
+            <MudList T="string" Dense="true" Class="mb-2">
+                @foreach (var commit in Comparison.Commits)
+                {
+                    <MudListItem T="string">
+                        <MudText Typo="Typo.body2" Class="text-truncate">@commit.Title</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            <code>@commit.ShortSha</code> · @commit.Author
+                            @if (commit.Date is { } date) { <text> · @TimeFormat.Relative(date, DateTimeOffset.UtcNow)</text> }
+                        </MudText>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+
+        @if (Comparison.ChangedFiles.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2">@Comparison.ChangedFiles.Count geänderte @(Comparison.ChangedFiles.Count == 1 ? "Datei" : "Dateien")</MudText>
+            <div class="compare-files">
+                @foreach (var file in Comparison.ChangedFiles)
+                {
+                    <div class="text-truncate" title="@file"><code>@file</code></div>
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => Dialog.Close()">Schließen</MudButton>
+        @if (Comparison.AheadBy > 0)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" StartIcon="@Icons.Material.Filled.CallMerge"
+                       OnClick="() => Dialog.Close(DialogResult.Ok(true))">Pull Request erstellen</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] public IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public BranchComparison Comparison { get; set; } = default!;
+}

@@ -184,10 +184,67 @@ internal sealed class FakeGitHubService : IGitHubService
         return Respond(0);
     }
 
-    public Task<string> CreatePullRequestAsync(string owner, string name, string title, string body, string head, string baseBranch)
+    public List<bool> PullRequestDrafts { get; } = [];
+
+    public Task<string> CreatePullRequestAsync(string owner, string name, string title, string body, string head, string baseBranch, bool draft = false)
     {
         PullRequests.Add((title, body, head, baseBranch));
+        PullRequestDrafts.Add(draft);
         return Respond($"https://github.com/{owner}/{name}/pull/{PullRequests.Count}");
+    }
+
+    public List<string> DeletedBranches { get; } = [];
+
+    /// <summary>Simuliert z. B. einen geschützten Branch, dessen Löschen GitHub ablehnt.</summary>
+    public Exception? DeleteBranchError { get; set; }
+
+    public Task DeleteBranchAsync(string owner, string name, string branch)
+    {
+        if (DeleteBranchError is not null)
+            return Task.FromException(DeleteBranchError);
+        DeletedBranches.Add(branch);
+        Heads.Remove(branch);
+        return Respond(0);
+    }
+
+    public Task RenameBranchAsync(string owner, string name, string branch, string newName)
+    {
+        if (Heads.Remove(branch, out var sha))
+            Heads[newName] = sha;
+        return Respond(0);
+    }
+
+    public BranchComparison? Comparison { get; set; }
+
+    public Task<BranchComparison> CompareAsync(string owner, string name, string baseBranch, string headBranch) =>
+        Respond(Comparison ?? new BranchComparison(baseBranch, headBranch, 0, 0, [], []));
+
+    public List<PullRequestSummary> PullRequestList { get; } = [];
+    public Dictionary<int, PullRequestDetails> PullRequestDetailsByNumber { get; } = [];
+    public List<(int Number, MergeMethod Method, string Sha)> Merges { get; } = [];
+    public List<(int Number, bool Open)> StateChanges { get; } = [];
+
+    public Task<IReadOnlyList<PullRequestSummary>> GetPullRequestsAsync(string owner, string name, PullRequestFilter filter) =>
+        Respond<IReadOnlyList<PullRequestSummary>>(PullRequestList
+            .Where(p => filter == PullRequestFilter.All || (filter == PullRequestFilter.Open) == (p.State == PullRequestState.Open))
+            .ToList());
+
+    public Task<PullRequestDetails> GetPullRequestAsync(string owner, string name, int number) =>
+        Respond(PullRequestDetailsByNumber[number]);
+
+    public Task<IReadOnlyList<PullRequestFile>> GetPullRequestFilesAsync(string owner, string name, int number) =>
+        Respond<IReadOnlyList<PullRequestFile>>([]);
+
+    public Task MergePullRequestAsync(string owner, string name, int number, MergeMethod method, string headSha)
+    {
+        Merges.Add((number, method, headSha));
+        return Respond(0);
+    }
+
+    public Task SetPullRequestOpenAsync(string owner, string name, int number, bool open)
+    {
+        StateChanges.Add((number, open));
+        return Respond(0);
     }
 
     private Task<T> Respond<T>(T value) =>

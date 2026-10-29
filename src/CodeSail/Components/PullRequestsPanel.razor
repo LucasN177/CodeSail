@@ -1,0 +1,144 @@
+@* Liste der Pull Requests eines Repositorys mit Filter (offen/geschlossen/alle). *@
+@inject PullRequestService PullRequests
+
+<div class="d-flex align-center gap-1 mb-2">
+    <MudButtonGroup Size="Size.Small" Variant="Variant.Outlined" OverrideStyles="false">
+        @foreach (var (filter, label) in Filters)
+        {
+            <MudButton Size="Size.Small" Variant="@(_filter == filter ? Variant.Filled : Variant.Outlined)"
+                       Color="@(_filter == filter ? Color.Primary : Color.Default)" OnClick="() => SetFilterAsync(filter)">@label</MudButton>
+        }
+    </MudButtonGroup>
+    <MudSpacer />
+    <MudTooltip Text="Neu laden">
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small" OnClick="ReloadAsync"
+                       Disabled="@(_loading || !Online)" aria-label="Pull Requests neu laden" />
+    </MudTooltip>
+</div>
+
+<MudButton StartIcon="@Icons.Material.Filled.Add" Size="Size.Small" Variant="Variant.Text" Class="mb-1"
+           Disabled="!Online" OnClick="() => Create.InvokeAsync()">Neuer Pull Request</MudButton>
+
+@if (!Online)
+{
+    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">Pull Requests brauchen eine Verbindung zu GitHub.</MudAlert>
+}
+else if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Dense="true">
+        @_error
+        <MudButton Variant="Variant.Text" Color="Color.Inherit" Size="Size.Small" OnClick="ReloadAsync">Erneut versuchen</MudButton>
+    </MudAlert>
+}
+else if (_items.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="pa-2 mud-text-secondary">Keine @(_filter == PullRequestFilter.Open ? "offenen " : "")Pull Requests.</MudText>
+}
+else
+{
+    <MudList T="int" Dense="true">
+        @foreach (var pr in _items)
+        {
+            <MudListItem T="int" Value="pr.Number" OnClick="() => Selected.InvokeAsync(pr)"
+                         Class="@(pr.Number == SelectedNumber ? "mud-selected-item" : "")">
+                <div class="d-flex align-start gap-2">
+                    <MudIcon Size="Size.Small" Class="mt-1" Icon="@StateIcon(pr)" Style="@($"color: {StateColor(pr)}")"
+                             title="@StateLabel(pr)" />
+                    <div class="flex-grow-1" style="min-width: 0">
+                        <MudText Typo="Typo.body2" Class="pr-title">@pr.Title</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block text-truncate">
+                            #@pr.Number · @pr.Head → @pr.Base
+                        </MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block text-truncate">
+                            @pr.Author · @TimeFormat.Relative(pr.UpdatedAt, DateTimeOffset.UtcNow)@(pr.Draft ? " · Entwurf" : "")
+                        </MudText>
+                    </div>
+                </div>
+            </MudListItem>
+        }
+    </MudList>
+}
+
+@code {
+    private static readonly (PullRequestFilter Filter, string Label)[] Filters =
+        [(PullRequestFilter.Open, "Offen"), (PullRequestFilter.Closed, "Geschlossen"), (PullRequestFilter.All, "Alle")];
+
+    private PullRequestFilter _filter = PullRequestFilter.Open;
+    private IReadOnlyList<PullRequestSummary> _items = [];
+    private bool _loading;
+    private string? _error;
+    private string? _loadedFor;
+
+    [Parameter, EditorRequired] public string Owner { get; set; } = "";
+    [Parameter, EditorRequired] public string Repo { get; set; } = "";
+    [Parameter] public bool Online { get; set; } = true;
+    [Parameter] public int? SelectedNumber { get; set; }
+
+    [Parameter] public EventCallback<PullRequestSummary> Selected { get; set; }
+    [Parameter] public EventCallback Create { get; set; }
+
+    /// <summary>Anzahl der offenen Pull Requests, sobald der Filter "Offen" geladen ist (für das Badge am Reiter).</summary>
+    [Parameter] public EventCallback<int> OpenCountChanged { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedFor != $"{Owner}/{Repo}" && Online)
+            await ReloadAsync();
+    }
+
+    public async Task ReloadAsync()
+    {
+        _loadedFor = $"{Owner}/{Repo}";
+        _loading = true;
+        _error = null;
+        try
+        {
+            _items = await PullRequests.ListAsync(Owner, Repo, _filter);
+            if (_filter == PullRequestFilter.Open)
+                await OpenCountChanged.InvokeAsync(_items.Count);
+        }
+        catch (Exception ex)
+        {
+            _error = GitHubErrors.Describe(ex);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SetFilterAsync(PullRequestFilter filter)
+    {
+        _filter = filter;
+        await ReloadAsync();
+    }
+
+    public static string StateIcon(PullRequestSummary pr) => pr.State switch
+    {
+        PullRequestState.Merged => Icons.Material.Filled.CallMerge,
+        PullRequestState.Closed => Icons.Material.Filled.Block,
+        _ when pr.Draft => Icons.Material.Outlined.Edit,
+        _ => Icons.Material.Filled.CallSplit
+    };
+
+    /// <summary>Farben wie auf GitHub: offen grün, gemergt lila, geschlossen rot, Entwurf grau.</summary>
+    public static string StateColor(PullRequestSummary pr) => pr.State switch
+    {
+        PullRequestState.Merged => "#a371f7",
+        PullRequestState.Closed => "#f85149",
+        _ when pr.Draft => "#8b949e",
+        _ => "#3fb950"
+    };
+
+    public static string StateLabel(PullRequestSummary pr) => pr.State switch
+    {
+        PullRequestState.Merged => "Gemergt",
+        PullRequestState.Closed => "Geschlossen",
+        _ when pr.Draft => "Entwurf",
+        _ => "Offen"
+    };
+}

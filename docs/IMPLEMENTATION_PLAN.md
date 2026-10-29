@@ -121,6 +121,20 @@ Umgesetzt in `Services/Preview/PreviewBuilder.cs` (Markdown → HTML mit Markdig
 - **Lokale Änderungen zuerst:** Ein noch nicht committetes Stylesheet erscheint sofort in der HTML-Vorschau.
 - **Grenzen:** `url(...)` innerhalb von CSS, `import` in JS-Modulen und Links auf andere Repo-Seiten werden nicht aufgelöst. Projekte mit Build-Schritt (React/Vite usw.) lassen sich nicht in der Vorschau anzeigen. Offline fehlen Bilder, die noch nie geladen wurden.
 
+## Phase 3c – Branch-Verwaltung und Pull Requests ✅ (umgesetzt, Test mit echtem Token offen)
+
+Die Seitenleiste hat vier Reiter (als Symbole mit Tooltip, damit sie in 320 px passen): Dateien, Änderungen, **Branches**, **Pull Requests**.
+
+- **Branches** (`Components/BranchesPanel.razor`): Suche; aktueller und Standard-Branch oben; Kennzeichnung „aktuell“, „Standard“, „geschützt“ und „N lokal“ (Dateien mit nicht committeten Änderungen). Aktionen je Branch: wechseln, mit dem Standard-Branch vergleichen (Commits vor/hinter, geänderte Dateien, direkt weiter zum PR), Pull Request erstellen, neuer Branch von hier, umbenennen, löschen.
+  - Löschen fragt nach und nennt die Zahl der lokalen Änderungen, die dabei verloren gehen. Standard- und geschützte Branches lassen sich nicht löschen.
+  - Beim Umbenennen ziehen lokale Änderungen unter den neuen Namen um. Offene PRs passt GitHub selbst an.
+- **Pull Requests** (`Components/PullRequestsPanel.razor`, `PullRequestView.razor`, `Services/PullRequestService.cs`): Filter Offen/Geschlossen/Alle (die 50 zuletzt aktualisierten), Badge mit der Zahl offener PRs, „Neuer Pull Request“ (Quelle/Ziel, Titelvorschlag aus dem Branch-Namen, Beschreibung, Entwurf).
+  - Die Detailansicht öffnet sich im Hauptbereich. Sie zeigt Status, Autor, Commits, +/−, die Beschreibung als Markdown (abgeschottet in einem eigenen iframe, weil PR-Texte von Dritten stammen; die Höhe passt sich an) und die geänderten Dateien mit aufklappbarem Diff.
+  - Aktionen: Mergen (Merge-Commit, Squash oder Rebase, optional Quell-Branch löschen), Schließen/Wieder öffnen, Branch öffnen, auf GitHub öffnen.
+  - Gemergt wird nur mit der Head-SHA aus der Ansicht. Hat sich der Branch inzwischen geändert, lehnt GitHub ab (409) und die Ansicht lädt neu. Branches aus Forks werden nie gelöscht. Schlägt nur das Löschen fehl (z. B. geschützt), bleibt der Merge trotzdem erfolgreich.
+- **Grenzen:** Kommentare und Reviews, Status-Checks (CI) und das Bearbeiten von Titel/Beschreibung sind nicht enthalten; dafür gibt es „Auf GitHub“. Bei mehr als 100 geänderten Dateien zeigt die Ansicht nur die ersten 100.
+- **Token-Rechte:** Lesen und Mergen von PRs braucht *Pull requests: Read and write*. Branches anlegen, umbenennen und löschen braucht *Contents: Read and write*. Das Umbenennen erfordert auf GitHub außerdem Admin-Rechte am Repository, wenn es der Standard-Branch ist.
+
 ## Phase 4 – Online-Compiler (4A umgesetzt, 4B geplant)
 
 ### Ziel und Umfang
