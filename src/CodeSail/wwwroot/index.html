@@ -25,11 +25,17 @@
 
 <body>
     <div id="app">
-        <svg class="loading-progress">
-            <circle r="40%" cx="50%" cy="50%" />
-            <circle r="40%" cx="50%" cy="50%" />
-        </svg>
-        <div class="loading-progress-text"></div>
+        <!-- Startbildschirm: wird von Blazor ersetzt, sobald die App geladen ist -->
+        <div class="splash" role="status" aria-live="polite">
+            <div class="splash-center">
+                <img class="splash-logo" src="icon.svg" alt="" width="112" height="112" />
+                <h1 class="splash-title">CodeSail</h1>
+                <p class="splash-tagline">Code-Editor für das iPad</p>
+                <div class="splash-progress" aria-hidden="true"><div class="splash-progress-bar"></div></div>
+                <p class="splash-percent"></p>
+            </div>
+            <p class="splash-author">by Lucas Nagelsmann</p>
+        </div>
     </div>
 
     <div id="blazor-error-ui">

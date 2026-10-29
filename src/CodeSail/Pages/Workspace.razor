@@ -142,6 +142,14 @@
                 </MudTooltip>
             }
 
+            @if (CanRun)
+            {
+                <MudTooltip Text="Ausführen (Cmd+Enter)">
+                    <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Success" OnClick="RunActiveAsync"
+                                   aria-label="Ausführen" />
+                </MudTooltip>
+            }
+
             @if (DiffFile is null && ActiveFile is { } current)
             {
                 <MudMenu Icon="@Icons.Material.Filled.MoreVert" AnchorOrigin="Origin.BottomRight"
@@ -159,7 +167,8 @@
         <div class="editor-row @(ActiveFile is null || DiffFile is not null ? "hidden" : "")">
             @* Der Editor bleibt immer eingebunden (auch bei "Nur Vorschau"), damit Undo-Verlauf und Modelle erhalten bleiben *@
             <div class="editor-host @(ShowPreview && _previewOnly ? "hidden" : "")">
-                <SourceEditor @ref="_editor" File="ActiveFile" ContentChanged="OnContentChangedAsync" SaveRequested="OnSaveRequested" />
+                <SourceEditor @ref="_editor" File="ActiveFile" ContentChanged="OnContentChangedAsync" SaveRequested="OnSaveRequested"
+                              RunRequested="RunActiveAsync" />
             </div>
             @if (ShowPreview)
             {
@@ -182,6 +191,11 @@
                 <MudText Class="mud-text-secondary">Wähle links eine Datei aus.</MudText>
             </div>
         }
+
+        @* Bleibt eingebunden und wird nur ausgeblendet, damit ein laufendes Programm beim Umschalten weiterläuft *@
+        <div class="run-area @(_runOpen ? "" : "hidden")">
+            <RunPanel @ref="_runPanel" LocationSelected="GoToRunLocationAsync" Closed="() => _runOpen = false" />
+        </div>
     </section>
 </div>
 
@@ -200,6 +214,10 @@
     private bool _previewOpen;
     private bool _previewOnly;
     private bool _narrow;
+
+    private RunPanel? _runPanel;
+    private bool _runOpen;
+    private string? _runFileKey;
 
     private readonly List<CachedFile> _openFiles = [];
     private string? _activeKey;
@@ -223,6 +241,37 @@
     private bool CanPreview => DiffFile is null && ActiveFile is { } file && PreviewBuilder.KindOf(file.Path) != PreviewKind.None;
 
     private bool ShowPreview => _previewOpen && CanPreview && _tree is not null;
+
+    private bool CanRun => DiffFile is null && ActiveFile is { } file && RunSession.LanguageOf(file.Path) != RunLanguage.None;
+
+    private async Task RunActiveAsync()
+    {
+        if (!CanRun || _runPanel is null)
+            return;
+
+        _runOpen = true;
+        _runFileKey = ActiveFile!.Key;
+        // Ausgeführt wird der aktuelle Inhalt des Editors; gespeichert wird trotzdem, damit nichts verloren geht
+        if (_editor is not null)
+            await _editor.FlushAsync();
+        await _runPanel.RunAsync(ActiveFile);
+    }
+
+    private async Task GoToRunLocationAsync((int Line, int Column) location)
+    {
+        if (_editor is null || _runFileKey is null || _openFiles.All(f => f.Key != _runFileKey))
+            return;
+
+        if (_activeKey != _runFileKey || DiffFile is not null)
+        {
+            ActivateTab(_runFileKey);
+            _previewOnly = false;
+            StateHasChanged();
+            // Dem Editor Zeit geben, das Modell der Datei anzuzeigen
+            await Task.Delay(100);
+        }
+        await _editor.GoToAsync(location.Line, location.Column);
+    }
 
     /// <summary>
     /// Querformat: Vorschau rechts neben dem Code (optional allein). Hochformat: dafür ist kein Platz,

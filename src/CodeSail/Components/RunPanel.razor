@@ -1,0 +1,183 @@
+@* Ausgabe-Panel für "Ausführen" (JavaScript/TypeScript). Startet den Runner aus wwwroot/js/runner.js. *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="run-panel">
+    <div class="run-header">
+        <MudIcon Icon="@Icons.Material.Filled.Terminal" Size="Size.Small" />
+        <MudText Typo="Typo.subtitle2" Class="ml-1">Ausgabe</MudText>
+        @if (_session is { } session)
+        {
+            <MudText Typo="Typo.caption" Class="ml-2 mud-text-secondary text-truncate">
+                @session.FileName · @StatusLabel(session)
+            </MudText>
+        }
+        <MudSpacer />
+        @if (_session is { Status: RunStatus.Running })
+        {
+            <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Stop"
+                       OnClick="StopAsync">Stopp</MudButton>
+        }
+        <MudTooltip Text="Ausgabe leeren">
+            <MudIconButton Icon="@Icons.Material.Filled.ClearAll" Size="Size.Small" OnClick="Clear"
+                           Disabled="@(_session is null)" aria-label="Ausgabe leeren" />
+        </MudTooltip>
+        <MudTooltip Text="Ausgabe schließen">
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" OnClick="CloseAsync" aria-label="Ausgabe schließen" />
+        </MudTooltip>
+    </div>
+
+    <div class="run-output" @ref="_output" role="log" aria-live="polite">
+        @if (_session is null)
+        {
+            <div class="run-hint">Mit ▶ oder Cmd+Enter ausführen. Ausgaben von console.log erscheinen hier.</div>
+        }
+        else
+        {
+            @if (_session.StatusText is { } text)
+            {
+                <div class="run-hint">@text</div>
+            }
+            @foreach (var line in _session.Lines)
+            {
+                <div class="run-line run-@line.Level @(line.Line is not null ? "clickable" : "")"
+                     @onclick="() => GoToAsync(line)" title="@(line.Line is { } l ? $"Zu Zeile {l} springen" : null)">
+                    @if (line.Line is { } number)
+                    {
+                        <span class="run-location">@(_session.FileName):@number</span>
+                    }
+                    <span class="run-text">@line.Text</span>
+                    @if (line.Detail is { } detail && detail != line.Text)
+                    {
+                        <pre class="run-detail">@detail</pre>
+                    }
+                </div>
+            }
+        }
+    </div>
+    <div @ref="_host" class="run-host"></div>
+</div>
+
+@code {
+    private ElementReference _output;
+    private ElementReference _host;
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<RunPanel>? _selfRef;
+    private RunSession? _session;
+    private int _nextId;
+    private bool _scrollPending;
+
+    /// <summary>Fehler oder Problem mit Zeilenangabe wurde angetippt.</summary>
+    [Parameter] public EventCallback<(int Line, int Column)> LocationSelected { get; set; }
+
+    [Parameter] public EventCallback Closed { get; set; }
+
+    public bool IsRunning => _session?.Status == RunStatus.Running;
+
+    public async Task RunAsync(CachedFile file)
+    {
+        var language = RunSession.LanguageOf(file.Path);
+        if (language == RunLanguage.None)
+            return;
+
+        _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/runner.js");
+        _selfRef ??= DotNetObjectReference.Create(this);
+        _session = new RunSession(++_nextId, file.Name, DateTimeOffset.UtcNow);
+        StateHasChanged();
+
+        try
+        {
+            await _module.InvokeVoidAsync("run", _host, new
+            {
+                runId = _session.Id,
+                fileName = file.Name,
+                modelUri = SourceEditor.ModelUri(file),
+                language = language == RunLanguage.TypeScript ? "typescript" : "javascript"
+            }, _selfRef);
+        }
+        catch (JSException ex)
+        {
+            _session.Apply([new RunMessage("error", Text: ex.Message), new RunMessage("end", Status: "failed")], DateTimeOffset.UtcNow);
+        }
+    }
+
+    [JSInvokable]
+    public void OnRunMessages(int runId, RunMessage[] messages)
+    {
+        // Nachrichten eines abgebrochenen oder ersetzten Laufs ignorieren
+        if (_session?.Id != runId)
+            return;
+        _session.Apply(messages, DateTimeOffset.UtcNow);
+        _scrollPending = true;
+        StateHasChanged();
+    }
+
+    public async Task StopAsync()
+    {
+        if (_module is not null)
+            await _module.InvokeVoidAsync("stop");
+        _session?.Stop(DateTimeOffset.UtcNow);
+    }
+
+    private void Clear() => _session = null;
+
+    private async Task CloseAsync()
+    {
+        await StopAsync();
+        await Closed.InvokeAsync();
+    }
+
+    private async Task GoToAsync(OutputLine line)
+    {
+        if (line.Line is { } number)
+            await LocationSelected.InvokeAsync((number, line.Column ?? 1));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Gleiche TypeScript-Optionen beim Bearbeiten wie beim Ausführen (z. B. await auf oberster Ebene)
+            _module ??= await JS.InvokeAsync<IJSObjectReference>("import", "./js/runner.js");
+            await _module.InvokeVoidAsync("configureTypeScript");
+        }
+
+        if (!_scrollPending || _module is null)
+            return;
+        _scrollPending = false;
+        // Neue Ausgaben sichtbar halten
+        await _module.InvokeVoidAsync("scrollToEnd", _output);
+    }
+
+    private static string StatusLabel(RunSession session) => session.Status switch
+    {
+        RunStatus.Running => "läuft",
+        RunStatus.Finished => $"fertig in {FormatDuration(session.Duration)}",
+        RunStatus.Failed => $"mit Fehler beendet nach {FormatDuration(session.Duration)}",
+        RunStatus.Stopped => "abgebrochen",
+        _ => ""
+    };
+
+    private static string FormatDuration(TimeSpan? duration) => duration switch
+    {
+        null => "",
+        { TotalSeconds: < 1 } d => $"{d.TotalMilliseconds:0} ms",
+        var d => $"{d.Value.TotalSeconds:0.0} s"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_module is not null)
+            {
+                await _module.InvokeVoidAsync("stop");
+                await _module.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        _selfRef?.Dispose();
+    }
+}

@@ -31,36 +31,101 @@ html, body {
     top: 0.5rem;
 }
 
-.loading-progress {
+/* ---- Startbildschirm (vor dem Laden von Blazor) ----
+   Blazor setzt --blazor-load-percentage(-text) auf <html>, während die App geladen wird. */
+
+body {
+    background: #1e1e1e;
+}
+
+.splash {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    color: #e6e6e6;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    /* Farben aus dem Logo, sehr zurückhaltend */
+    background:
+        radial-gradient(ellipse 70% 55% at 50% 40%, rgba(49, 46, 129, 0.45), transparent 70%),
+        radial-gradient(ellipse 60% 40% at 50% 85%, rgba(15, 118, 110, 0.22), transparent 70%),
+        #1e1e1e;
+}
+
+.splash-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-top: -6vh;
+}
+
+.splash-logo {
+    border-radius: 26px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+    animation: splash-bob 3.2s ease-in-out infinite;
+}
+
+.splash-title {
+    margin: 28px 0 4px;
+    font-size: 2.1rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.splash-tagline {
+    margin: 0 0 32px;
+    font-size: 0.95rem;
+    color: #9a9a9a;
+}
+
+.splash-progress {
+    width: 220px;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+}
+
+.splash-progress-bar {
+    height: 100%;
+    width: var(--blazor-load-percentage, 0%);
+    border-radius: 2px;
+    background: linear-gradient(90deg, #6366f1, #2dd4bf);
+    transition: width 0.15s ease-out;
+}
+
+.splash-percent {
+    margin: 10px 0 0;
+    min-height: 1.2em;
+    font-size: 0.8rem;
+    color: #8a8a8a;
+    font-variant-numeric: tabular-nums;
+}
+
+.splash-percent::after {
+    content: var(--blazor-load-percentage-text, "");
+}
+
+.splash-author {
     position: absolute;
-    display: block;
-    width: 8rem;
-    height: 8rem;
-    inset: 20vh 0 auto 0;
-    margin: 0 auto;
+    bottom: calc(28px + env(safe-area-inset-bottom));
+    margin: 0;
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    color: #8a8a8a;
 }
 
-.loading-progress circle {
-    fill: none;
-    stroke: #e0e0e0;
-    stroke-width: 0.6rem;
-    transform-origin: 50% 50%;
-    transform: rotate(-90deg);
+/* Das Boot schaukelt leicht auf den Wellen */
+@keyframes splash-bob {
+    0%, 100% { transform: translateY(0) rotate(-1.5deg); }
+    50% { transform: translateY(-8px) rotate(1.5deg); }
 }
 
-.loading-progress circle:last-child {
-    stroke: #1b6ec2;
-    stroke-dasharray: calc(3.141 * var(--blazor-load-percentage, 0%) * 0.8), 500%;
-    transition: stroke-dasharray 0.05s ease-in-out;
-}
-
-.loading-progress-text {
-    position: absolute;
-    text-align: center;
-    font-weight: bold;
-    inset: calc(20vh + 3.25rem) 0 auto 0.2rem;
-}
-
-.loading-progress-text:after {
-    content: var(--blazor-load-percentage-text, "Loading");
+@media (prefers-reduced-motion: reduce) {
+    .splash-logo {
+        animation: none;
+    }
 }

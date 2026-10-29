@@ -121,7 +121,7 @@ Umgesetzt in `Services/Preview/PreviewBuilder.cs` (Markdown → HTML mit Markdig
 - **Lokale Änderungen zuerst:** Ein noch nicht committetes Stylesheet erscheint sofort in der HTML-Vorschau.
 - **Grenzen:** `url(...)` innerhalb von CSS, `import` in JS-Modulen und Links auf andere Repo-Seiten werden nicht aufgelöst. Projekte mit Build-Schritt (React/Vite usw.) lassen sich nicht in der Vorschau anzeigen. Offline fehlen Bilder, die noch nie geladen wurden.
 
-## Phase 4 – Online-Compiler (geplant)
+## Phase 4 – Online-Compiler (4A umgesetzt, 4B geplant)
 
 ### Ziel und Umfang
 
@@ -143,7 +143,7 @@ CodeSail soll Code direkt auf dem iPad **übersetzen, Fehler anzeigen und ausfü
 | Laden von Roslyn | Eigenes Projekt `src/CodeSail.Compiler`, per `BlazorWebAssemblyLazyLoad` erst bei Bedarf | Mehrere MB, die sonst jeden App-Start verlangsamen |
 | Referenz-Assemblies | Aus dem NuGet-Paket `Microsoft.NETCore.App.Ref` beim Build nach `wwwroot/refs/` kopieren und bei Bedarf laden | Die Laufzeit-Assemblies im `_framework`-Ordner liegen im Webcil-Format vor, Roslyn braucht echte PE-Metadaten |
 | Ausführung C# | Kompiliertes Assembly in einer **zweiten .NET-Laufzeit im Web Worker** laden und starten | Hält die Oberfläche flüssig; Endlosschleifen lassen sich durch Beenden des Workers abbrechen, im UI-Thread ginge das nicht |
-| Ausführung JS/TS | Abgeschotteter iframe ohne `allow-same-origin` (wie die Vorschau), `console.*` per `postMessage` an die App | Gleiches, bereits geprüftes Sicherheitsmodell |
+| Ausführung JS/TS | Web Worker in einem abgeschotteten iframe ohne `allow-same-origin`, `console.*` per `postMessage` an die App | Gleiches Sicherheitsmodell wie die Vorschau; zusätzlich eigener Thread, damit Endlosschleifen die App nicht blockieren |
 | Offline | Roslyn und Referenzen nach dem ersten Laden im Cache des Service Workers | Die App funktioniert offline weiter; erster Download nur, wenn der Compiler genutzt wird |
 | Multithreading in WASM | Nicht verwenden | Braucht COOP/COEP-Header (Cross-Origin-Isolation); GitHub Pages kann keine Header setzen |
 
@@ -170,11 +170,15 @@ Kompiliert wird zunächst im Haupt-Thread, weil Roslyn nur bei Bedarf läuft und
 - **Prüfen:** Läuft eine zweite .NET-Laufzeit im Web Worker? (eigenes `dotnet.js` im Worker, oder kostenlose Bibliotheken wie SpawnDev.BlazorJS.WebWorkers bzw. BlazorWorker, beide MIT). Gibt es dafür in .NET 10 inzwischen offizielle Vorlagen?
 - *Weiter, wenn:* Hello World läuft auf dem iPad, die erste Übersetzung braucht < 10 s, eine wiederholte < 2 s. Sonst die Stufe 4B neu bewerten.
 
-**4.1 JavaScript/TypeScript ausführen (Stufe 4A)**
-- „Ausführen“ für `.js`, `.mjs`, `.ts`: Code im abgeschotteten iframe starten. `console.log/warn/error` und nicht abgefangene Fehler gehen per `postMessage` in ein Ausgabe-Panel.
-- TypeScript: Übersetzung über den TypeScript-Worker von Monaco (`monaco.languages.typescript.getTypeScriptWorker` → `getEmitOutput`), keine neue Abhängigkeit.
-- Abbruch: iframe entfernen. Zeitlimit-Hinweis bei langen Läufen.
-- *Fertig, wenn:* Ein TS-Programm mit `console.log` läuft offline auf dem iPad und zeigt die Ausgabe, und ein Fehler erscheint mit Zeilenangabe.
+**4.1 JavaScript/TypeScript ausführen (Stufe 4A)** ✅ umgesetzt, Test auf dem iPad offen
+
+Umgesetzt in `wwwroot/js/runner.js`, `Services/Run/RunSession.cs` und `Components/RunPanel.razor`; ▶ in der Editor-Leiste bzw. **Cmd+Enter** bei `.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, `.cts`.
+
+- **Ausführung im Web Worker innerhalb eines abgeschotteten iframes** (statt direkt im iframe wie ursprünglich geplant): Der Worker hat einen eigenen Thread. Eine Endlosschleife friert die App deshalb nicht ein, im Browser gemessen lief die Oberfläche weiter. Der iframe ohne `allow-same-origin` sorgt dafür, dass `localStorage` fehlt und IndexedDB mit `SecurityError` blockiert ist (geprüft). „Stopp“ entfernt den iframe und beendet damit den Worker.
+- **Klassischer statt Modul-Worker:** Modul-Worker aus Blob-URLs starten in einem Origin ohne Herkunft nicht (im Browser geprüft). Das Programm wird deshalb in eine `async`-Funktion gelegt; `await` auf oberster Ebene funktioniert trotzdem. `export` wird entfernt, ohne Zeilen zu verschieben, `import` wird mit Zeilenangabe als nicht unterstützt gemeldet.
+- **TypeScript** übersetzt der TypeScript-Worker von Monaco (`getEmitOutput`, Ziel ESNext, mit Source Map). Syntaxfehler verhindern das Ausführen; Typfehler erscheinen als Warnung, das Programm läuft trotzdem (wie `tsc` mit `noEmitOnError: false`). Laufzeitfehler werden über die Source Map auf die richtige `.ts`-Zeile zurückgerechnet, ebenso Zeilen im Stacktrace.
+- **Ausgabe-Panel** unten (ein-/ausblendbar, läuft beim Ausblenden weiter): `console.log/info/warn/error/debug/clear`, Objekte als JSON, Fehler mit antippbarer Zeilenangabe (springt im Editor an die Stelle), Status mit Laufzeit. Ausgaben werden im Worker gepuffert und gebündelt; nach 5.000 Zeilen wird abgeschnitten, damit eine Ausgabeflut die App nicht lahmlegt.
+- **Grenzen:** kein `import` mehrerer Dateien, kein DOM (`document`, `alert`, `prompt`) im Worker – dafür ist die HTML-Vorschau da. Netzwerk per `fetch` nur zu Servern mit CORS.
 
 **4.2 Compiler-Projekt und Referenz-Assemblies**
 - `src/CodeSail.Compiler` (Klassenbibliothek): `ICompileService` mit `CompileAsync(CompileRequest) → CompileResult(bytes, diagnostics)`. Ohne Abhängigkeit zu Blazor, damit es sich normal testen lässt.

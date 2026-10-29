@@ -24,6 +24,9 @@
 
     [Parameter] public EventCallback SaveRequested { get; set; }
 
+    /// <summary>Cmd+Enter (nicht Cmd+R, das lädt in Safari die Seite neu).</summary>
+    [Parameter] public EventCallback RunRequested { get; set; }
+
     private StandaloneEditorConstructionOptions Options(StandaloneCodeEditor editor) => new()
     {
         AutomaticLayout = true,
@@ -45,7 +48,23 @@
                 await FlushAsync();
                 await SaveRequested.InvokeAsync();
             }), null);
+        await _editor.AddCommand((int)KeyMod.CtrlCmd | (int)KeyCode.Enter, _ =>
+            InvokeAsync(async () =>
+            {
+                await FlushAsync();
+                await RunRequested.InvokeAsync();
+            }), null);
         await ShowFileAsync();
+    }
+
+    /// <summary>Setzt den Cursor an die Stelle, z. B. beim Antippen eines Fehlers in der Ausgabe.</summary>
+    public async Task GoToAsync(int line, int column)
+    {
+        if (_editor is null)
+            return;
+        await _editor.SetPosition(new BlazorMonaco.Position { LineNumber = line, Column = Math.Max(column, 1) }, "codesail");
+        await _editor.RevealLineInCenter(line, null);
+        await _editor.Focus();
     }
 
     protected override async Task OnParametersSetAsync()
@@ -118,7 +137,8 @@
             _shownKey = null;
     }
 
-    private static string ModelUri(CachedFile file)
+    /// <summary>URI des Monaco-Modells; die Dateiendung am Ende bestimmt die Sprache.</summary>
+    public static string ModelUri(CachedFile file)
     {
         var segments = new[] { file.Owner, file.Repo, file.Branch }
             .Concat(file.Path.Split('/'))

@@ -99,6 +99,17 @@
     height: 100%;
 }
 
+/* Ausgabe-Panel unten, etwa ein Drittel der Höhe */
+.run-area {
+    flex: 0 0 34%;
+    min-height: 140px;
+    border-top: 1px solid var(--mud-palette-lines-default);
+}
+
+.run-area.hidden {
+    display: none;
+}
+
 .editor-placeholder {
     flex: 1 1 auto;
     display: flex;
