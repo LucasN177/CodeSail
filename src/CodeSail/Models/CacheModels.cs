@@ -38,9 +38,15 @@ public sealed record CachedTree(string Key, string Sha, List<TreeEntry> Entries,
 
 public sealed record CachedRepo(string Key, string DefaultBranch, List<BranchInfo> Branches);
 
+/// <summary>Zuletzt geladene Repository-Liste; liegt im Store "repos" unter <see cref="CacheKeys.RepoList"/>.</summary>
+public sealed record CachedRepoList(string Key, List<RepoSummary> Repos);
+
 /// <summary>Schlüssel im IndexedDB-Cache. Owner und Repo werden kleingeschrieben, da GitHub sie nicht unterscheidet.</summary>
 public static class CacheKeys
 {
+    /// <summary>Kann nicht mit einem Repo-Schlüssel kollidieren, da diese immer ein "/" enthalten.</summary>
+    public const string RepoList = "__repo-list";
+
     public static string Repo(string owner, string repo) => $"{owner}/{repo}".ToLowerInvariant();
 
     public static string Branch(string owner, string repo, string branch) => $"{Repo(owner, repo)}@{branch}";

@@ -16,6 +16,23 @@ public sealed record RepoBranches(string DefaultBranch, IReadOnlyList<BranchInfo
 /// </summary>
 public sealed class WorkspaceService(IGitHubService gitHub, IFileCache cache)
 {
+    public async Task<Loaded<IReadOnlyList<RepoSummary>>> LoadRepositoriesAsync()
+    {
+        try
+        {
+            var repos = await gitHub.GetRepositoriesAsync();
+            await cache.SaveRepoListAsync(new CachedRepoList(CacheKeys.RepoList, repos.ToList()));
+            return new(repos, FromCache: false);
+        }
+        catch (Exception ex) when (IsOffline(ex))
+        {
+            var cached = await cache.GetRepoListAsync();
+            if (cached is null)
+                throw;
+            return new(cached.Repos, FromCache: true);
+        }
+    }
+
     public async Task<Loaded<RepoBranches>> LoadBranchesAsync(string owner, string repo)
     {
         var key = CacheKeys.Repo(owner, repo);
@@ -181,6 +198,10 @@ public sealed class WorkspaceService(IGitHubService gitHub, IFileCache cache)
             .ToList();
         return RepoTree.FromEntries(tree.Sha, entries, tree.Truncated);
     }
+
+    /// <summary>Legt in einem leeren Repository eine README.md als ersten Commit an.</summary>
+    public Task InitializeRepositoryAsync(string owner, string repo) =>
+        gitHub.CreateFirstFileAsync(owner, repo, "README.md", $"# {repo}\n", "Initial commit");
 
     /// <summary>Legt einen Branch ab dem aktuellen Stand auf GitHub an (lokale Änderungen bleiben auf dem alten Branch).</summary>
     public async Task<BranchInfo> CreateBranchAsync(string owner, string repo, string fromBranch, string name, IEnumerable<BranchInfo> existing)

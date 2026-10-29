@@ -25,7 +25,7 @@
                 }
             </div>
 
-            @if (_branches is not null)
+            @if (_branches is { Count: > 0 })
             {
                 <div class="d-flex align-center gap-1 mb-2">
                     <MudSelect T="BranchInfo" Value="_branch" ValueChanged="OnBranchChanged" Label="Branch"
@@ -40,6 +40,10 @@
                         <MudIconButton Icon="@Icons.Material.Filled.AddCircleOutline" OnClick="CreateBranchAsync"
                                        Disabled="@(!Browser.IsOnline)" aria-label="Neuen Branch anlegen" />
                     </MudTooltip>
+                    <MudTooltip Text="Neu von GitHub laden (offene Dateien bleiben offen, lokale Änderungen bleiben erhalten)">
+                        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync"
+                                       Disabled="@(_tree is null)" aria-label="Aktualisieren" />
+                    </MudTooltip>
                 </div>
             }
 
@@ -49,6 +53,16 @@
                     @_error
                     <MudButton Variant="Variant.Text" Color="Color.Inherit" Size="Size.Small" OnClick="ReloadAsync">Erneut versuchen</MudButton>
                 </MudAlert>
+            }
+            else if (_emptyRepo)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                    Das Repository ist noch leer. Lege eine erste Datei an, danach kannst du wie gewohnt arbeiten.
+                </MudAlert>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true" StartIcon="@Icons.Material.Filled.NoteAdd"
+                           OnClick="InitializeRepositoryAsync" Disabled="@(_committing || !Browser.IsOnline)">
+                    README.md anlegen
+                </MudButton>
             }
             else if (_displayTree is null)
             {
@@ -152,6 +166,7 @@
     private RepoTree? _displayTree;
     private string? _treeSignature;
     private bool _fromCache;
+    private bool _emptyRepo;
     private string? _error;
     private bool _explorerOpen = true;
     private string? _loadedRepo;
@@ -185,6 +200,8 @@
         {
             if (_loadedRepo != $"{Owner}/{Name}")
                 await LoadBranchesAsync();
+            if (_emptyRepo)
+                return;
 
             var wanted = _branches!.FirstOrDefault(b => b.Name == BranchName) ?? _branch;
             if (wanted is not null && wanted != _branch || _tree is null)
@@ -206,13 +223,33 @@
         var loaded = await RepoData.LoadBranchesAsync(Owner, Name);
         _fromCache = loaded.FromCache;
         _branches = loaded.Value.Branches;
-        if (_branches.Count == 0)
-            throw new InvalidOperationException("Das Repository ist leer.");
+        _loadedRepo = $"{Owner}/{Name}";
+        _emptyRepo = _branches.Count == 0;
+        if (_emptyRepo)
+            return;
 
         _branch = _branches.FirstOrDefault(b => b.Name == BranchName)
             ?? _branches.FirstOrDefault(b => b.Name == loaded.Value.DefaultBranch)
             ?? _branches[0];
-        _loadedRepo = $"{Owner}/{Name}";
+    }
+
+    private async Task InitializeRepositoryAsync()
+    {
+        _committing = true;
+        try
+        {
+            await RepoData.InitializeRepositoryAsync(Owner, Name);
+            Snackbar.Add("README.md angelegt.", Severity.Success);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(GitHubErrors.Describe(ex), Severity.Error);
+        }
+        finally
+        {
+            _committing = false;
+        }
     }
 
     /// <summary>Lädt den Baum eines Branches. Offene Tabs bleiben offen, sofern es die Dateien dort gibt.</summary>

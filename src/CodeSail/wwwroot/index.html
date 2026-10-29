@@ -13,10 +13,13 @@
     <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
     <link rel="stylesheet" href="css/app.css" />
     <link href="CodeSail.styles.css" rel="stylesheet" />
-    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="icon" type="image/svg+xml" href="icon.svg" />
+    <link rel="icon" type="image/png" sizes="48x48" href="favicon.png" />
     <link href="manifest.webmanifest" rel="manifest" />
-    <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" />
-    <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png" />
+    <meta name="theme-color" content="#1e1e1e" />
+    <meta name="apple-mobile-web-app-title" content="CodeSail" />
+    <!-- iOS rundet die Ecken selbst ab, daher die Variante ohne runde Ecken -->
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
     <script type="importmap"></script>
 </head>
 
@@ -39,7 +42,7 @@
     <script src="_content/BlazorMonaco/jsInterop.js"></script>
     <script src="_content/BlazorMonaco/lib/monaco-editor/min/vs/loader.js"></script>
     <script src="_content/BlazorMonaco/lib/monaco-editor/min/vs/editor/editor.main.js"></script>
-    <script>navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });</script>
+    <script src="js/pwa.js"></script>
 </body>
 
 </html>

@@ -1,4 +1,6 @@
-# ⚓️ CodeSail
+<img src="src/CodeSail/wwwroot/icon.svg" alt="CodeSail logo" width="96" align="right" />
+
+# CodeSail
 
 [![CI](https://github.com/LucasN177/CodeSail/actions/workflows/ci.yml/badge.svg)](https://github.com/LucasN177/CodeSail/actions/workflows/ci.yml)
 [![Deploy](https://github.com/LucasN177/CodeSail/actions/workflows/deploy.yml/badge.svg)](https://github.com/LucasN177/CodeSail/actions/workflows/deploy.yml)
@@ -40,7 +42,13 @@ It connects straight to your **GitHub** repositories through the GitHub REST API
 
 **Conflicts:** Before pushing, CodeSail checks whether any of your files changed on GitHub since you opened them. Changes to *other* files are fine; your commit simply goes on top. If the same file changed, you choose: commit your version anyway (it replaces the GitHub version) or cancel, discard your change and redo it on the new version. Nothing is merged automatically.
 
-**Offline:** You can keep editing, creating and deleting files. Committing is disabled until you're back online; nothing is pushed in the background without you.
+**Offline:** CodeSail also starts without a connection and shows the repositories, branches and files you opened before. You can keep editing, creating and deleting files. Committing is disabled until you're back online; nothing is pushed in the background without you.
+
+**Staying up to date:** The ⟳ button next to the branch picker (and on the repository list) reloads from GitHub. Open tabs stay open and local changes are kept. When a new version of CodeSail itself is available, an **Update** button appears in the top bar.
+
+**Expired token:** If GitHub rejects your token while you work, CodeSail takes you to the sign-in page and returns you to where you were afterwards. Local changes stay on the device.
+
+**Empty repositories:** Open one and tap **Create README.md** to make the first commit.
 
 > Signing out deletes the token and all offline copies. CodeSail warns you first if there are uncommitted changes.
 
@@ -66,7 +74,10 @@ All dependencies are free and open source.
 - [.NET SDK 10](https://dotnet.microsoft.com/download). The version is pinned in `global.json`.
 - A GitHub **fine-grained Personal Access Token** ([create one](https://github.com/settings/personal-access-tokens/new)) with:
   - **Repository access:** the repositories you want to edit
-  - **Permissions:** *Contents: Read and write* (*Metadata: Read* is added automatically)
+  - **Permissions:**
+    - *Contents: Read and write*: read files, commit, create branches
+    - *Pull requests: Read and write*: only needed if you want CodeSail to open pull requests
+    - *Metadata: Read* is added automatically
 
 ### Run
 ```bash
@@ -92,6 +103,7 @@ src/CodeSail/
   Services/Storage/  Token store, IndexedDB file cache
   wwwroot/js/        IndexedDB + browser interop module
 tests/CodeSail.Tests/
+tools/render-icons.cs  Regenerates the PNG icons from the SVG logo (dotnet run tools/render-icons.cs)
 docs/IMPLEMENTATION_PLAN.md
 ```
 

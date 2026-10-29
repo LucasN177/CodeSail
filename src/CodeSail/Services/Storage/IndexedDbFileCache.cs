@@ -27,6 +27,10 @@ public sealed class IndexedDbFileCache(IJSRuntime js) : IFileCache, IAsyncDispos
 
     public Task SaveRepoAsync(CachedRepo repo) => PutAsync("repos", repo);
 
+    public Task<CachedRepoList?> GetRepoListAsync() => GetAsync<CachedRepoList>("repos", CacheKeys.RepoList);
+
+    public Task SaveRepoListAsync(CachedRepoList list) => PutAsync("repos", list);
+
     public async Task ClearAsync() => await (await Module).InvokeVoidAsync("clearAll");
 
     public async Task<bool> RequestPersistenceAsync() =>

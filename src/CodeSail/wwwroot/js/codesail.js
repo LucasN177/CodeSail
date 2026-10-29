@@ -81,6 +81,18 @@ export function watchConnectivity(dotNetRef) {
     return navigator.onLine;
 }
 
+// Meldet .NET, sobald eine neue App-Version bereitliegt (siehe pwa.js)
+export function watchUpdates(dotNetRef) {
+    const pwa = window.codesailPwa;
+    if (!pwa) return false;
+    pwa.onUpdate(() => dotNetRef.invokeMethodAsync("OnUpdateAvailable"));
+    return pwa.updateReady;
+}
+
+export function applyUpdate() {
+    window.codesailPwa?.applyUpdate();
+}
+
 // Schmale Ansicht (iPad hochkant): Explorer liegt dann über dem Editor
 export function isNarrow() {
     return window.matchMedia("(max-width: 820px)").matches;

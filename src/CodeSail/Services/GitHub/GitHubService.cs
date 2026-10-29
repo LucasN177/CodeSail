@@ -23,64 +23,73 @@ public sealed class GitHubService(ITokenStore tokenStore, HttpClient http) : IGi
 
     public event Action? RateLimitChanged;
 
-    public async Task<string> GetCurrentUserLoginAsync()
+    public event Action? Unauthorized;
+
+    public Task<string> GetCurrentUserLoginAsync() =>
+        RunAsync(async c => (await c.User.Current()).Login);
+
+    public Task<IReadOnlyList<RepoSummary>> GetRepositoriesAsync() =>
+        RunAsync<IReadOnlyList<RepoSummary>>(async c =>
+            (await c.Repository.GetAllForCurrent(new RepositoryRequest { Sort = RepositorySort.Updated }))
+                .Select(ToSummary).ToList());
+
+    public Task<RepoSummary> GetRepositoryAsync(string owner, string name) =>
+        RunAsync(async c => ToSummary(await c.Repository.Get(owner, name)));
+
+    public Task<IReadOnlyList<BranchInfo>> GetBranchesAsync(string owner, string name) =>
+        RunAsync<IReadOnlyList<BranchInfo>>(async c =>
+            (await c.Repository.Branch.GetAll(owner, name)).Select(b => new BranchInfo(b.Name, b.Commit.Sha)).ToList());
+
+    public Task<TreeSnapshot> GetTreeAsync(string owner, string name, string commitSha) =>
+        RunAsync(async c =>
+        {
+            var tree = await c.Git.Tree.GetRecursive(owner, name, commitSha);
+
+            // Submodule (TreeType.Commit) können nicht geöffnet werden und werden ausgelassen
+            var entries = tree.Tree
+                .Where(t => t.Type.Value is TreeType.Blob or TreeType.Tree)
+                .Select(t => t.Type.Value == TreeType.Tree
+                    ? new TreeEntry(t.Path, IsFolder: true)
+                    : new TreeEntry(t.Path, IsFolder: false, t.Sha, t.Mode))
+                .ToList();
+
+            return new TreeSnapshot(tree.Sha, entries, tree.Truncated);
+        });
+
+    public Task<byte[]> GetBlobAsync(string owner, string name, string blobSha) =>
+        RunAsync(async c =>
+        {
+            var blob = await c.Git.Blob.Get(owner, name, blobSha);
+            return blob.Encoding.Value == EncodingType.Base64
+                ? Convert.FromBase64String(blob.Content)
+                : System.Text.Encoding.UTF8.GetBytes(blob.Content);
+        });
+
+    /// <summary>
+    /// Die Git-Data-API funktioniert in leeren Repositories nicht. Die Contents-API legt dagegen
+    /// mit der ersten Datei auch den ersten Commit und den Standard-Branch an.
+    /// </summary>
+    public Task CreateFirstFileAsync(string owner, string name, string path, string content, string message) =>
+        SendAsync(HttpMethod.Put, $"{RepoPath(owner, name)}/contents/{string.Join('/', path.Split('/').Select(Uri.EscapeDataString))}",
+            new { message, content = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(content)) });
+
+    /// <summary>Führt einen Octokit-Aufruf aus, aktualisiert das API-Kontingent und meldet abgelaufene Tokens.</summary>
+    private async Task<T> RunAsync<T>(Func<GitHubClient, Task<T>> call)
     {
         var client = await GetClientAsync();
-        var user = await client.User.Current();
-        UpdateRateLimit(client);
-        return user.Login;
-    }
-
-    public async Task<IReadOnlyList<RepoSummary>> GetRepositoriesAsync()
-    {
-        var client = await GetClientAsync();
-        var repos = await client.Repository.GetAllForCurrent(new RepositoryRequest { Sort = RepositorySort.Updated });
-        UpdateRateLimit(client);
-        return repos.Select(ToSummary).ToList();
-    }
-
-    public async Task<RepoSummary> GetRepositoryAsync(string owner, string name)
-    {
-        var client = await GetClientAsync();
-        var repo = await client.Repository.Get(owner, name);
-        UpdateRateLimit(client);
-        return ToSummary(repo);
-    }
-
-    public async Task<IReadOnlyList<BranchInfo>> GetBranchesAsync(string owner, string name)
-    {
-        var client = await GetClientAsync();
-        var branches = await client.Repository.Branch.GetAll(owner, name);
-        UpdateRateLimit(client);
-        return branches.Select(b => new BranchInfo(b.Name, b.Commit.Sha)).ToList();
-    }
-
-    public async Task<TreeSnapshot> GetTreeAsync(string owner, string name, string commitSha)
-    {
-        var client = await GetClientAsync();
-        var tree = await client.Git.Tree.GetRecursive(owner, name, commitSha);
-        UpdateRateLimit(client);
-
-        // Submodule (TreeType.Commit) können nicht geöffnet werden und werden ausgelassen
-        var entries = tree.Tree
-            .Where(t => t.Type.Value is TreeType.Blob or TreeType.Tree)
-            .Select(t => t.Type.Value == TreeType.Tree
-                ? new TreeEntry(t.Path, IsFolder: true)
-                : new TreeEntry(t.Path, IsFolder: false, t.Sha, t.Mode))
-            .ToList();
-
-        return new TreeSnapshot(tree.Sha, entries, tree.Truncated);
-    }
-
-    public async Task<byte[]> GetBlobAsync(string owner, string name, string blobSha)
-    {
-        var client = await GetClientAsync();
-        var blob = await client.Git.Blob.Get(owner, name, blobSha);
-        UpdateRateLimit(client);
-
-        return blob.Encoding.Value == EncodingType.Base64
-            ? Convert.FromBase64String(blob.Content)
-            : System.Text.Encoding.UTF8.GetBytes(blob.Content);
+        try
+        {
+            return await call(client);
+        }
+        catch (AuthorizationException)
+        {
+            Unauthorized?.Invoke();
+            throw;
+        }
+        finally
+        {
+            UpdateRateLimit(client);
+        }
     }
 
     // Git-Data-Aufrufe laufen direkt über HTTP: Octokit lässt null-Werte weg, GitHub braucht aber
@@ -142,6 +151,8 @@ public sealed class GitHubService(ITokenStore tokenStore, HttpClient http) : IGi
 
         var text = await response.Content.ReadAsStringAsync();
         var json = string.IsNullOrWhiteSpace(text) ? default : JsonDocument.Parse(text).RootElement.Clone();
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            Unauthorized?.Invoke();
         if (!response.IsSuccessStatusCode)
         {
             var message = json.ValueKind == JsonValueKind.Object && json.TryGetProperty("message", out var m)

@@ -1,11 +1,24 @@
 @page "/repos"
-@inject IGitHubService GitHub
+@inject WorkspaceService RepoData
 @inject NavigationManager Nav
 
 <PageTitle>CodeSail – Repositories</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Medium" Class="mt-6 mb-6">
-    <MudText Typo="Typo.h5" Class="mb-3">Repositories</MudText>
+    <div class="d-flex align-center mb-3">
+        <MudText Typo="Typo.h5">Repositories</MudText>
+        @if (_fromCache)
+        {
+            <MudTooltip Text="GitHub ist nicht erreichbar. Angezeigt wird die zuletzt geladene Liste.">
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Class="ml-2">Offline-Kopie</MudChip>
+            </MudTooltip>
+        }
+        <MudSpacer />
+        <MudTooltip Text="Liste neu von GitHub laden">
+            <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@(_repos is null && _error is null)"
+                           aria-label="Repositories aktualisieren" />
+        </MudTooltip>
+    </div>
 
     <MudTextField @bind-Value="_filter" Placeholder="Repository suchen…" Variant="Variant.Outlined"
                   Immediate="true" Clearable="true" Adornment="Adornment.Start"
@@ -51,6 +64,7 @@
     private IReadOnlyList<RepoSummary>? _repos;
     private string? _filter;
     private string? _error;
+    private bool _fromCache;
 
     private IEnumerable<RepoSummary> FilteredRepos =>
         string.IsNullOrWhiteSpace(_filter)
@@ -65,7 +79,9 @@
         _repos = null;
         try
         {
-            _repos = await GitHub.GetRepositoriesAsync();
+            var loaded = await RepoData.LoadRepositoriesAsync();
+            _repos = loaded.Value;
+            _fromCache = loaded.FromCache;
         }
         catch (Exception ex)
         {

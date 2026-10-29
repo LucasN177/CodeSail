@@ -34,6 +34,9 @@ Anlegen unter *Settings → Secrets and variables → Actions*:
 Kein Secret nötig. Zum Testen in der App einen **Fine-grained Personal Access Token** erstellen (*GitHub → Settings → Developer settings → Fine-grained tokens*):
 
 - Repository access: nur die Test-Repos
-- Permissions: **Contents: Read and write**, **Metadata: Read** (automatisch)
+- Permissions:
+  - **Contents: Read and write** – Dateien lesen, committen, Branches anlegen
+  - **Pull requests: Read and write** – nur nötig, wenn CodeSail Pull Requests erstellen soll
+  - **Metadata: Read** – wird automatisch gesetzt
 
 Den Token nur in der laufenden App eingeben, nicht in Dateien wie `appsettings.json` speichern.

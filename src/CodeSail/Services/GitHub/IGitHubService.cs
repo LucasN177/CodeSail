@@ -9,6 +9,9 @@ public interface IGitHubService
 
     event Action? RateLimitChanged;
 
+    /// <summary>GitHub hat das Token abgelehnt (401), z. B. weil es abgelaufen ist oder widerrufen wurde.</summary>
+    event Action? Unauthorized;
+
     /// <summary>Prüft das Token und liefert den Login des Nutzers.</summary>
     Task<string> GetCurrentUserLoginAsync();
 
@@ -36,6 +39,9 @@ public interface IGitHubService
     Task UpdateBranchAsync(string owner, string name, string branch, string commitSha);
 
     Task CreateBranchAsync(string owner, string name, string branch, string commitSha);
+
+    /// <summary>Legt in einem leeren Repository die erste Datei und damit den ersten Commit an.</summary>
+    Task CreateFirstFileAsync(string owner, string name, string path, string content, string message);
 
     /// <summary>Erstellt einen Pull Request und liefert dessen URL.</summary>
     Task<string> CreatePullRequestAsync(string owner, string name, string title, string body, string head, string baseBranch);

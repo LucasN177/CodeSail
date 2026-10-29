@@ -10,6 +10,14 @@
         Melde dich mit einem GitHub Fine-grained Personal Access Token an, um deine Repositories zu öffnen.
     </MudText>
 
+    @if (Auth.SessionExpired)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4">
+            GitHub hat dein Token abgelehnt, es ist abgelaufen oder wurde widerrufen. Melde dich mit einem neuen Token an.
+            Deine lokalen Änderungen sind weiterhin auf diesem Gerät gespeichert.
+        </MudAlert>
+    }
+
     <MudPaper Class="pa-4" Elevation="1">
         <form @onsubmit="LoginAsync">
             <MudTextField @bind-Value="_token" Label="Personal Access Token" Variant="Variant.Outlined"
@@ -39,8 +47,8 @@
     <MudText Typo="Typo.body2" Class="mt-4 mud-text-secondary">
         Noch kein Token?
         <MudLink Href="https://github.com/settings/personal-access-tokens/new" Target="_blank">Token auf GitHub erstellen</MudLink>
-        mit den Rechten <b>Contents: Read and write</b> für die gewünschten Repositories.
-        Das Token wird nur in diesem Browser gespeichert.
+        mit den Rechten <b>Contents: Read and write</b> und, für Pull Requests, <b>Pull requests: Read and write</b>
+        für die gewünschten Repositories. Das Token wird nur in diesem Browser gespeichert.
     </MudText>
 </MudContainer>
 
@@ -53,7 +61,14 @@
     protected override void OnInitialized()
     {
         if (Auth.IsAuthenticated)
-            Nav.NavigateTo("repos", replace: true);
+            Nav.NavigateTo(TakeReturnUrl(), replace: true);
+    }
+
+    private string TakeReturnUrl()
+    {
+        var url = string.IsNullOrEmpty(Auth.ReturnUrl) ? "repos" : Auth.ReturnUrl;
+        Auth.ReturnUrl = null;
+        return url;
     }
 
     private async Task LoginAsync()
@@ -67,7 +82,7 @@
         {
             await Auth.LoginAsync(_token, _remember);
             _token = "";
-            Nav.NavigateTo("repos");
+            Nav.NavigateTo(TakeReturnUrl());
         }
         catch (Exception ex)
         {

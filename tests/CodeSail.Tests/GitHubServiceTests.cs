@@ -69,6 +69,32 @@ public class GitHubServiceTests
     }
 
     [Fact]
+    public async Task UnauthorizedResponse_RaisesUnauthorizedEvent()
+    {
+        var raised = false;
+        _service.Unauthorized += () => raised = true;
+        _handler.Respond("""{ "message": "Bad credentials" }""", HttpStatusCode.Unauthorized);
+
+        await Assert.ThrowsAsync<GitHubApiException>(() => _service.GetBranchHeadAsync("o", "r", "main"));
+
+        Assert.True(raised);
+    }
+
+    [Fact]
+    public async Task CreateFirstFile_PutsBase64ContentViaContentsApi()
+    {
+        _handler.Respond("{}");
+
+        await _service.CreateFirstFileAsync("o", "r", "docs/Read Me.md", "# Hallo", "Initial commit");
+
+        Assert.Equal(HttpMethod.Put, _handler.Method);
+        Assert.Equal("https://api.github.com/repos/o/r/contents/docs/Read%20Me.md", _handler.Uri);
+        using var body = JsonDocument.Parse(_handler.Body!);
+        Assert.Equal("# Hallo", System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(body.RootElement.GetProperty("content").GetString()!)));
+        Assert.Equal("Initial commit", body.RootElement.GetProperty("message").GetString());
+    }
+
+    [Fact]
     public async Task RateLimitHeaders_UpdateRateLimit()
     {
         _handler.Respond("""{ "object": { "sha": "c9" } }""", headers: new()

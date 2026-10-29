@@ -157,6 +157,27 @@ public class WorkspaceServiceTests
     }
 
     [Fact]
+    public async Task LoadRepositories_WhenOffline_UsesLastList()
+    {
+        _gitHub.Repositories.Add(new RepoSummary(1, Owner, Repo, "main", false));
+        await _workspace.LoadRepositoriesAsync();
+        _gitHub.NetworkError = new HttpRequestException();
+
+        var loaded = await _workspace.LoadRepositoriesAsync();
+
+        Assert.True(loaded.FromCache);
+        Assert.Equal("Octo/Demo", Assert.Single(loaded.Value).FullName);
+    }
+
+    [Fact]
+    public async Task InitializeRepository_CreatesReadme()
+    {
+        await _workspace.InitializeRepositoryAsync(Owner, Repo);
+
+        Assert.Equal(("README.md", "# Demo\n", "Initial commit"), Assert.Single(_gitHub.FirstFiles));
+    }
+
+    [Fact]
     public void DecodeText_KeepsByteOrderMark() =>
         Assert.Equal("﻿hi", WorkspaceService.DecodeText([0xEF, 0xBB, 0xBF, (byte)'h', (byte)'i']));
 }

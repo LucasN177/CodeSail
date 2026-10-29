@@ -66,4 +66,23 @@ public class HomePageTests : MudTestContext
 
         Assert.EndsWith("/repos", Services.GetRequiredService<NavigationManager>().Uri);
     }
+
+    [Fact]
+    public async Task Login_AfterExpiredSession_ShowsHintAndReturnsToPreviousPage()
+    {
+        var auth = Services.GetRequiredService<AuthState>();
+        await auth.LoginAsync("good", remember: false);
+        auth.ReturnUrl = "repo/octo/demo?branch=dev";
+        _gitHub.RaiseUnauthorized();
+
+        var cut = Render<Home>();
+        Assert.Contains("abgelaufen", cut.Markup);
+
+        cut.Find("input[type=password]").Input("good");
+        cut.Find("form").Submit();
+
+        var nav = Services.GetRequiredService<NavigationManager>();
+        cut.WaitForAssertion(() => Assert.EndsWith("/repo/octo/demo?branch=dev", nav.Uri));
+        Assert.Null(auth.ReturnUrl);
+    }
 }

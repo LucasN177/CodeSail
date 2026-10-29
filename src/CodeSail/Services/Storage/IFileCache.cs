@@ -22,6 +22,10 @@ public interface IFileCache
 
     Task SaveRepoAsync(CachedRepo repo);
 
+    Task<CachedRepoList?> GetRepoListAsync();
+
+    Task SaveRepoListAsync(CachedRepoList list);
+
     Task ClearAsync();
 
     /// <summary>Bittet den Browser, den Cache nicht automatisch zu löschen.</summary>

@@ -18,9 +18,20 @@ internal sealed class FakeTokenStore : ITokenStore
         return ValueTask.CompletedTask;
     }
 
+    public string? Login { get; set; }
+
+    public ValueTask<string?> GetLoginAsync() => ValueTask.FromResult(Login);
+
+    public ValueTask SetLoginAsync(string login)
+    {
+        Login = login;
+        return ValueTask.CompletedTask;
+    }
+
     public ValueTask ClearAsync()
     {
         Token = null;
+        Login = null;
         return ValueTask.CompletedTask;
     }
 }
@@ -44,13 +55,28 @@ internal sealed class FakeGitHubService : IGitHubService
 
     public event Action? RateLimitChanged { add { } remove { } }
 
+    public event Action? Unauthorized;
+
+    /// <summary>Simuliert, dass GitHub das Token bei einem beliebigen Aufruf ablehnt.</summary>
+    public void RaiseUnauthorized() => Unauthorized?.Invoke();
+
     public Task<string> GetCurrentUserLoginAsync() =>
         TokenStore.Token is { } token && Users.TryGetValue(token, out var login)
             ? Task.FromResult(login)
             : Task.FromException<string>(LoginError);
 
+    public List<RepoSummary> Repositories { get; } = [];
+
     public Task<IReadOnlyList<RepoSummary>> GetRepositoriesAsync() =>
-        Respond<IReadOnlyList<RepoSummary>>([]);
+        Respond<IReadOnlyList<RepoSummary>>(Repositories.ToList());
+
+    public List<(string Path, string Content, string Message)> FirstFiles { get; } = [];
+
+    public Task CreateFirstFileAsync(string owner, string name, string path, string content, string message)
+    {
+        FirstFiles.Add((path, content, message));
+        return Respond(0);
+    }
 
     public Task<RepoSummary> GetRepositoryAsync(string owner, string name) =>
         Respond(new RepoSummary(1, owner, name, "main", false));
@@ -205,6 +231,16 @@ internal sealed class FakeFileCache : IFileCache
     public Task SaveRepoAsync(CachedRepo repo)
     {
         Repos[repo.Key] = repo;
+        return Task.CompletedTask;
+    }
+
+    public CachedRepoList? RepoList { get; set; }
+
+    public Task<CachedRepoList?> GetRepoListAsync() => Task.FromResult(RepoList);
+
+    public Task SaveRepoListAsync(CachedRepoList list)
+    {
+        RepoList = list;
         return Task.CompletedTask;
     }
 

@@ -15,10 +15,19 @@
 
 <MudLayout>
     <MudAppBar Elevation="0" Dense="true">
-        <MudLink Href="@(Auth.IsAuthenticated ? "repos" : "")" Color="Color.Inherit" Underline="Underline.None">
-            <MudText Typo="Typo.h6">⚓️ CodeSail</MudText>
+        <MudLink Href="@(Auth.IsAuthenticated ? "repos" : "")" Color="Color.Inherit" Underline="Underline.None"
+                 Class="d-flex align-center">
+            <img src="icon.svg" alt="" width="26" height="26" class="mr-2" style="border-radius: 6px" />
+            <MudText Typo="Typo.h6">CodeSail</MudText>
         </MudLink>
         <MudSpacer />
+        @if (Browser.UpdateAvailable)
+        {
+            <MudTooltip Text="Eine neue Version von CodeSail ist geladen">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small" Class="mr-2"
+                           StartIcon="@Icons.Material.Filled.SystemUpdate" OnClick="ApplyUpdateAsync">Aktualisieren</MudButton>
+            </MudTooltip>
+        }
         @if (!Browser.IsOnline)
         {
             <MudTooltip Text="Keine Verbindung. Änderungen werden lokal gespeichert.">
@@ -65,6 +74,7 @@
         Auth.Changed += OnStateChanged;
         GitHub.RateLimitChanged += OnStateChanged;
         Browser.ConnectivityChanged += OnStateChanged;
+        Browser.UpdateReady += OnStateChanged;
 
         await Browser.InitializeAsync();
         await Auth.InitializeAsync();
@@ -75,9 +85,13 @@
 
     protected override void OnParametersSet()
     {
-        // Alle Seiten außer Login und "Nicht gefunden" erfordern eine Anmeldung
+        // Alle Seiten außer Login und "Nicht gefunden" erfordern eine Anmeldung.
+        // Die aktuelle Seite wird gemerkt, damit es nach dem (erneuten) Anmelden dort weitergeht.
         if (Auth.IsInitialized && !Auth.IsAuthenticated && !IsPublicPage())
+        {
+            Auth.ReturnUrl = Nav.ToBaseRelativePath(Nav.Uri);
             Nav.NavigateTo("", replace: true);
+        }
     }
 
     private bool IsPublicPage()
@@ -99,6 +113,19 @@
         _ => $"{_usage / (1024.0 * 1024):0.#} MB"
     };
 
+    private async Task ApplyUpdateAsync()
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync("CodeSail aktualisieren?",
+            "Die App wird neu geladen. Lokale Änderungen sind gespeichert und bleiben erhalten.",
+            yesText: "Neu laden", cancelText: "Später");
+        if (confirmed != true)
+            return;
+
+        // Kurz warten, damit das automatische Speichern des Editors (500 ms) sicher durch ist
+        await Task.Delay(600);
+        await Browser.ApplyUpdateAsync();
+    }
+
     private async Task LogoutAsync()
     {
         var dirty = await Workspace.CountDirtyFilesAsync();
@@ -112,6 +139,8 @@
 
         await Workspace.ClearCacheAsync();
         await Auth.LogoutAsync();
+        // Bewusstes Abmelden: nach dem nächsten Anmelden bei der Repo-Liste beginnen
+        Auth.ReturnUrl = null;
         Nav.NavigateTo("", replace: true);
     }
 
@@ -129,5 +158,6 @@
         Auth.Changed -= OnStateChanged;
         GitHub.RateLimitChanged -= OnStateChanged;
         Browser.ConnectivityChanged -= OnStateChanged;
+        Browser.UpdateReady -= OnStateChanged;
     }
 }
