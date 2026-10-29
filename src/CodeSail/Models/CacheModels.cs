@@ -2,7 +2,10 @@ using CodeSail.Services.GitHub;
 
 namespace CodeSail.Models;
 
-/// <summary>Lokale Kopie einer Datei. <see cref="OriginalContent"/> ist der Stand von GitHub (Blob <see cref="BlobSha"/>).</summary>
+/// <summary>
+/// Lokale Kopie einer Datei. <see cref="OriginalContent"/> ist der Stand von GitHub (Blob <see cref="BlobSha"/>).
+/// Neue Dateien haben keine <see cref="BlobSha"/>; gelöschte sind mit <see cref="Deleted"/> markiert.
+/// </summary>
 public sealed record CachedFile(
     string Key,
     string Owner,
@@ -11,12 +14,24 @@ public sealed record CachedFile(
     string Path,
     string Content,
     string OriginalContent,
-    string BlobSha,
-    DateTimeOffset UpdatedAt)
+    string? BlobSha,
+    DateTimeOffset UpdatedAt,
+    bool Deleted = false)
 {
-    public bool IsDirty => Content != OriginalContent;
+    public bool IsNew => BlobSha is null;
+
+    public bool IsDirty => Deleted || IsNew || Content != OriginalContent;
+
+    public ChangeKind Change => Deleted ? ChangeKind.Deleted : IsNew ? ChangeKind.Added : ChangeKind.Modified;
 
     public string Name => Path[(Path.LastIndexOf('/') + 1)..];
+}
+
+public enum ChangeKind
+{
+    Modified,
+    Added,
+    Deleted
 }
 
 public sealed record CachedTree(string Key, string Sha, List<TreeEntry> Entries, bool Truncated);

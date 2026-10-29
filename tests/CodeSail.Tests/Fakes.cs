@@ -58,13 +58,110 @@ internal sealed class FakeGitHubService : IGitHubService
     public Task<IReadOnlyList<BranchInfo>> GetBranchesAsync(string owner, string name) =>
         Respond<IReadOnlyList<BranchInfo>>([new BranchInfo("main", "abc")]);
 
-    public Task<TreeSnapshot> GetTreeAsync(string owner, string name, string commitSha) =>
-        Respond(new TreeSnapshot("tree-" + commitSha, TreeEntries.ToList(), false));
+    public Task<TreeSnapshot> GetTreeAsync(string owner, string name, string commitSha)
+    {
+        if (!Commits.TryGetValue(commitSha, out var files))
+            return Respond(new TreeSnapshot("tree-" + commitSha, TreeEntries.ToList(), false));
+
+        // Simuliertes Repository: Baum aus dem Dateistand des Commits
+        var treeSha = "tree-" + commitSha;
+        _trees[treeSha] = files;
+        var entries = files.Select(f => new TreeEntry(f.Key, false, GitBlobSha.Compute(f.Value.Content), f.Value.Mode)).ToList();
+        return Respond(new TreeSnapshot(treeSha, entries, false));
+    }
 
     public Task<byte[]> GetBlobAsync(string owner, string name, string blobSha)
     {
         BlobRequests++;
         return Respond(Blobs[blobSha]);
+    }
+
+    // --- Simuliertes Repository für Commit-Tests ---
+
+    /// <summary>Branch → Commit-SHA.</summary>
+    public Dictionary<string, string> Heads { get; } = [];
+
+    /// <summary>Commit-SHA → Dateistand (Pfad → Inhalt und Modus).</summary>
+    public Dictionary<string, Dictionary<string, (string Content, string Mode)>> Commits { get; } = [];
+
+    public Dictionary<string, string> Messages { get; } = [];
+    public List<IReadOnlyList<TreeChange>> CreatedTrees { get; } = [];
+    public List<(string Title, string Body, string Head, string Base)> PullRequests { get; } = [];
+
+    /// <summary>Wird direkt vor dem Verschieben eines Branches ausgeführt, z. B. um einen fremden Push zu simulieren.</summary>
+    public Action? BeforeUpdateBranch { get; set; }
+
+    private readonly Dictionary<string, Dictionary<string, (string Content, string Mode)>> _trees = [];
+    private readonly Dictionary<string, string> _parents = [];
+    private int _counter;
+
+    /// <summary>Legt einen Commit direkt auf dem Branch an, als hätte jemand anderes gepusht.</summary>
+    public string Push(string branch, Dictionary<string, string> changes, string mode = "100644")
+    {
+        var files = Heads.TryGetValue(branch, out var head) ? new(Commits[head]) : new Dictionary<string, (string, string)>();
+        foreach (var (path, content) in changes)
+            files[path] = (content, mode);
+
+        var sha = $"seed{++_counter}";
+        Commits[sha] = files;
+        if (head is not null)
+            _parents[sha] = head;
+        Heads[branch] = sha;
+        return sha;
+    }
+
+    public Task<string> GetBranchHeadAsync(string owner, string name, string branch) => Respond(Heads[branch]);
+
+    public Task<string> CreateTreeAsync(string owner, string name, string baseTreeSha, IReadOnlyList<TreeChange> changes)
+    {
+        CreatedTrees.Add(changes);
+        var files = new Dictionary<string, (string Content, string Mode)>(_trees[baseTreeSha]);
+        foreach (var change in changes)
+        {
+            if (change.Content is null)
+                files.Remove(change.Path);
+            else
+                files[change.Path] = (change.Content, change.Mode);
+        }
+
+        var sha = $"tree{++_counter}";
+        _trees[sha] = files;
+        return Respond(sha);
+    }
+
+    public Task<string> CreateCommitAsync(string owner, string name, string message, string treeSha, string parentSha)
+    {
+        var sha = $"commit{++_counter}";
+        Commits[sha] = _trees[treeSha];
+        _parents[sha] = parentSha;
+        Messages[sha] = message;
+        return Respond(sha);
+    }
+
+    public Task UpdateBranchAsync(string owner, string name, string branch, string commitSha)
+    {
+        BeforeUpdateBranch?.Invoke();
+        BeforeUpdateBranch = null;
+        if (_parents.GetValueOrDefault(commitSha) != Heads[branch])
+            return Task.FromException(new GitHubApiException(System.Net.HttpStatusCode.UnprocessableEntity, "Update is not a fast forward"));
+
+        Heads[branch] = commitSha;
+        return Task.CompletedTask;
+    }
+
+    public Task CreateBranchAsync(string owner, string name, string branch, string commitSha)
+    {
+        if (Heads.ContainsKey(branch))
+            return Task.FromException(new GitHubApiException(System.Net.HttpStatusCode.UnprocessableEntity, "Reference already exists"));
+
+        Heads[branch] = commitSha;
+        return Respond(0);
+    }
+
+    public Task<string> CreatePullRequestAsync(string owner, string name, string title, string body, string head, string baseBranch)
+    {
+        PullRequests.Add((title, body, head, baseBranch));
+        return Respond($"https://github.com/{owner}/{name}/pull/{PullRequests.Count}");
     }
 
     private Task<T> Respond<T>(T value) =>

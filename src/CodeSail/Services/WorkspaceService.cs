@@ -55,9 +55,16 @@ public sealed class WorkspaceService(IGitHubService gitHub, IFileCache cache)
 
     /// <summary>Lokal geänderte Dateien eines Branches, z. B. um sie nach einem Neustart wieder zu öffnen.</summary>
     public async Task<IReadOnlyList<CachedFile>> GetDirtyFilesAsync(string owner, string repo, string branch) =>
+        (await GetChangesAsync(owner, repo, branch))
+            .Where(f => !f.Deleted)
+            .OrderBy(f => f.UpdatedAt)
+            .ToList();
+
+    /// <summary>Alle lokalen Änderungen eines Branches (geändert, neu, gelöscht), sortiert nach Pfad.</summary>
+    public async Task<IReadOnlyList<CachedFile>> GetChangesAsync(string owner, string repo, string branch) =>
         (await cache.GetFilesAsync(CacheKeys.Branch(owner, repo, branch) + ":"))
             .Where(f => f.IsDirty)
-            .OrderBy(f => f.UpdatedAt)
+            .OrderBy(f => f.Path, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
     public async Task<int> CountDirtyFilesAsync() =>
@@ -104,7 +111,114 @@ public sealed class WorkspaceService(IGitHubService gitHub, IFileCache cache)
         return updated;
     }
 
-    public Task<CachedFile> DiscardChangesAsync(CachedFile file) => SaveContentAsync(file, file.OriginalContent);
+    /// <summary>Stellt den Stand von GitHub wieder her. Neue Dateien verschwinden ganz (Rückgabe null).</summary>
+    public async Task<CachedFile?> DiscardChangesAsync(CachedFile file)
+    {
+        if (file.IsNew)
+        {
+            await cache.RemoveFileAsync(file.Key);
+            return null;
+        }
+
+        var restored = file with { Content = file.OriginalContent, Deleted = false, UpdatedAt = DateTimeOffset.UtcNow };
+        await cache.SaveFileAsync(restored);
+        return restored;
+    }
+
+    /// <param name="tree">Dateibaum inklusive lokaler Änderungen, um doppelte Pfade zu erkennen.</param>
+    public async Task<CachedFile> CreateFileAsync(string owner, string repo, string branch, string path, RepoTree tree, string content = "")
+    {
+        path = NormalizePath(path);
+        if (tree.FilePaths.Contains(path))
+            throw new InvalidOperationException($"Es gibt bereits eine Datei {path}.");
+        if (tree.Entries.Any(e => e.IsFolder && e.Path == path))
+            throw new InvalidOperationException($"Es gibt bereits einen Ordner {path}.");
+
+        var key = CacheKeys.File(owner, repo, branch, path);
+        var file = await cache.GetFileAsync(key) is { Deleted: true } deleted
+            // Eine gerade gelöschte Datei wird wiederhergestellt und gilt dann als geändert
+            ? deleted with { Deleted = false, Content = content, UpdatedAt = DateTimeOffset.UtcNow }
+            : new CachedFile(key, owner, repo, branch, path, content, "", null, DateTimeOffset.UtcNow);
+
+        await cache.SaveFileAsync(file);
+        return file;
+    }
+
+    /// <summary>Markiert die Datei als gelöscht. Neue, noch nie committete Dateien werden direkt entfernt.</summary>
+    public async Task<CachedFile?> DeleteFileAsync(CachedFile file)
+    {
+        if (file.IsNew)
+        {
+            await cache.RemoveFileAsync(file.Key);
+            return null;
+        }
+
+        var deleted = file with { Deleted = true, Content = file.OriginalContent, UpdatedAt = DateTimeOffset.UtcNow };
+        await cache.SaveFileAsync(deleted);
+        return deleted;
+    }
+
+    /// <summary>Umbenennen bzw. Verschieben: Git kennt das nur als neue Datei plus gelöschte Datei.</summary>
+    public async Task<CachedFile> RenameFileAsync(CachedFile file, string newPath, RepoTree tree)
+    {
+        var created = await CreateFileAsync(file.Owner, file.Repo, file.Branch, newPath, tree, file.Content);
+        await DeleteFileAsync(file);
+        return created;
+    }
+
+    /// <summary>Blendet lokal gelöschte Dateien aus und neue Dateien ein. Ohne solche Änderungen bleibt der Baum unverändert.</summary>
+    public static RepoTree ApplyLocalChanges(RepoTree tree, IEnumerable<CachedFile> changes)
+    {
+        var list = changes.ToList();
+        var deleted = list.Where(f => f.Deleted).Select(f => f.Path).ToHashSet();
+        var added = list.Where(f => f.IsNew && !tree.BlobShas.ContainsKey(f.Path)).Select(f => f.Path).ToList();
+        if (deleted.Count == 0 && added.Count == 0)
+            return tree;
+
+        var entries = tree.Entries
+            .Where(e => e.IsFolder || !deleted.Contains(e.Path))
+            .Concat(added.Select(p => new TreeEntry(p, IsFolder: false)))
+            .ToList();
+        return RepoTree.FromEntries(tree.Sha, entries, tree.Truncated);
+    }
+
+    /// <summary>Legt einen Branch ab dem aktuellen Stand auf GitHub an (lokale Änderungen bleiben auf dem alten Branch).</summary>
+    public async Task<BranchInfo> CreateBranchAsync(string owner, string repo, string fromBranch, string name, IEnumerable<BranchInfo> existing)
+    {
+        name = ValidateBranchName(name, existing);
+        var head = await gitHub.GetBranchHeadAsync(owner, repo, fromBranch);
+        await gitHub.CreateBranchAsync(owner, repo, name, head);
+        return new BranchInfo(name, head);
+    }
+
+    /// <summary>Prüft die wichtigsten Git-Regeln für Branch-Namen (git check-ref-format).</summary>
+    public static string ValidateBranchName(string name, IEnumerable<BranchInfo> existing)
+    {
+        name = name.Trim();
+        var invalid = name.Length == 0
+            || name.Any(c => char.IsWhiteSpace(c) || char.IsControl(c) || "~^:?*[\\".Contains(c))
+            || name.Contains("..") || name.Contains("//") || name.Contains("@{")
+            || name.StartsWith('/') || name.EndsWith('/') || name.StartsWith('-')
+            || name.EndsWith('.') || name.EndsWith(".lock", StringComparison.Ordinal)
+            || name.Split('/').Any(s => s.StartsWith('.'));
+        if (invalid)
+            throw new InvalidOperationException(
+                $"\"{name}\" ist kein gültiger Branch-Name. Erlaubt sind z. B. feature/neue-seite (keine Leerzeichen, kein \"..\").");
+
+        if (existing.Any(b => b.Name == name))
+            throw new InvalidOperationException($"Der Branch {name} existiert bereits.");
+
+        return name;
+    }
+
+    /// <summary>Vereinheitlicht einen eingegebenen Pfad und weist ungültige Pfade zurück.</summary>
+    public static string NormalizePath(string path)
+    {
+        var segments = path.Trim().Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (segments.Length == 0 || segments.Any(s => s is "." or ".." or ".git"))
+            throw new InvalidOperationException("Ungültiger Dateipfad.");
+        return string.Join('/', segments);
+    }
 
     public Task ClearCacheAsync() => cache.ClearAsync();
 

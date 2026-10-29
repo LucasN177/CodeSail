@@ -21,17 +21,28 @@ It connects straight to your **GitHub** repositories through the GitHub REST API
 | **Monaco editor** (the VS Code engine): syntax highlighting for many languages, multi-cursor, tabs with separate undo history | ✅ |
 | **Offline-first**: files, trees and branch lists are mirrored to IndexedDB; edits are saved locally as you type and survive restarts | ✅ |
 | **Offline indicator** and API rate-limit display | ✅ |
-| Commit, branch and pull-request workflow | 🚧 Phase 3 |
+| **Create, rename, move and delete files** | ✅ |
+| **Changes view** with side-by-side diff (Monaco diff editor) | ✅ |
+| **Commit & push** several files as one commit, with conflict detection | ✅ |
+| **Branches**: create, switch, commit to a new branch and open a pull request | ✅ |
+| Preview for Markdown and static HTML | 💡 planned |
 | In-browser C# compilation (Roslyn) | 🧪 Phase 4 |
 
-### How editing works today
+### Workflow
 
 1. Open a repository, pick a branch and tap a file.
-2. Changes are written to the device's IndexedDB about half a second after you stop typing. **Cmd + S** saves immediately.
-3. Edited files show a **●** in their tab and in the explorer. They reopen automatically the next time you open that branch, even after the app was closed or the device was offline.
-4. Use **⋮ → Discard changes** to go back to the GitHub version.
+2. Edit. Changes are written to the device's IndexedDB about half a second after you stop typing. **Cmd + S** saves immediately.
+   Edited files show a **●** in their tab and in the explorer, and reopen automatically after the app was closed.
+3. New files: **Files → New file** (use `/` for folders). Rename, move or delete via the **⋮** menu of the open file.
+4. Switch to the **Changes** tab in the sidebar. It lists every changed (**M**), added (**A**) and deleted (**D**) file. Tap one to see a diff, or use ↶ to discard it.
+5. Enter a commit message and tap **Commit & push**. All changes become a single commit.
+   Tick **Commit to a new branch** to create a branch instead, and optionally open a pull request against the current branch.
 
-> Pushing changes back to GitHub comes in Phase 3. Until then, local edits stay on the device. Signing out deletes the token and all offline copies, and CodeSail warns you first if there are unsaved edits.
+**Conflicts:** Before pushing, CodeSail checks whether any of your files changed on GitHub since you opened them. Changes to *other* files are fine; your commit simply goes on top. If the same file changed, you choose: commit your version anyway (it replaces the GitHub version) or cancel, discard your change and redo it on the new version. Nothing is merged automatically.
+
+**Offline:** You can keep editing, creating and deleting files. Committing is disabled until you're back online; nothing is pushed in the background without you.
+
+> Signing out deletes the token and all offline copies. CodeSail warns you first if there are uncommitted changes.
 
 ---
 
@@ -73,11 +84,11 @@ dotnet test
 ### Project structure
 ```
 src/CodeSail/
-  Components/        FileExplorer, SourceEditor (Monaco wrapper)
+  Components/        FileExplorer, SourceEditor + DiffView (Monaco), ChangesPanel, dialogs
   Layout/            App shell: app bar, auth guard, offline/rate-limit indicators
   Pages/             Home (sign-in), Repos, Workspace
-  Services/          AuthState, WorkspaceService (online/offline loading), BrowserEnvironment
-  Services/GitHub/   Octokit wrapper, tree builder, error messages
+  Services/          AuthState, WorkspaceService (loading, file operations), CommitService, BrowserEnvironment
+  Services/GitHub/   GitHub API (Octokit + direct Git Data calls), tree builder, error messages
   Services/Storage/  Token store, IndexedDB file cache
   wwwroot/js/        IndexedDB + browser interop module
 tests/CodeSail.Tests/
@@ -111,8 +122,8 @@ Open the live URL in **Safari on your iPad**, tap **Share → Add to Home Screen
 - [x] **Phase 0:** Project setup, CI, GitHub Pages deployment
 - [x] **Phase 1:** GitHub authentication & repository tree explorer
 - [x] **Phase 2:** Monaco editor integration with offline caching (IndexedDB)
-- [ ] **Phase 3:** Commit & branch management workflow *(next)*
-- [ ] **Phase 4:** In-browser compilation experiments with Roslyn (`Microsoft.CodeAnalysis`)
+- [x] **Phase 3:** Commit & branch management workflow
+- [ ] **Phase 4:** In-browser compilation experiments with Roslyn (`Microsoft.CodeAnalysis`) *(next, after a Markdown/HTML preview)*
 
 Details: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)
 

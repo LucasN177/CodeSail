@@ -1,0 +1,116 @@
+@* Liste der lokalen Änderungen eines Branches mit Commit-Formular (ähnlich "Source Control" in VS Code). *@
+
+@if (Changes.Count == 0)
+{
+    <MudText Typo="Typo.body2" Class="pa-2 mud-text-secondary">Keine lokalen Änderungen auf @Branch.</MudText>
+}
+else
+{
+    <MudList T="string" Dense="true" Class="mb-2">
+        @foreach (var file in Changes)
+        {
+            <MudListItem T="string" Value="file.Key" OnClick="() => Selected.InvokeAsync(file)"
+                         Class="@(file.Key == SelectedKey ? "mud-selected-item mud-primary-hover" : "")">
+                <div class="d-flex align-center gap-2">
+                    <span class="change-badge change-@file.Change.ToString().ToLowerInvariant()" title="@ChangeLabel(file.Change)">
+                        @ChangeLetter(file.Change)
+                    </span>
+                    <div class="flex-grow-1" style="min-width: 0">
+                        <MudText Typo="Typo.body2" Class="text-truncate"
+                                 Style="@(file.Deleted ? "text-decoration: line-through" : null)">@file.Name</MudText>
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary text-truncate d-block">@file.Path</MudText>
+                    </div>
+                    <span @onclick:stopPropagation="true">
+                        <MudIconButton Icon="@Icons.Material.Filled.Undo" Size="Size.Small" Disabled="Busy"
+                                       OnClick="() => Discard.InvokeAsync(file)" aria-label="@($"Änderungen an {file.Name} verwerfen")" />
+                    </span>
+                </div>
+            </MudListItem>
+        }
+    </MudList>
+
+    <form @onsubmit="SubmitAsync">
+        <MudTextField @bind-Value="_message" Label="Commit-Nachricht" Variant="Variant.Outlined" Lines="3"
+                      Immediate="true" Disabled="Busy" Placeholder="Kurze Zusammenfassung in der ersten Zeile" />
+
+        <MudCheckBox @bind-Value="_toNewBranch" Disabled="Busy" Color="Color.Primary" Dense="true" Class="mt-1"
+                     Label="In neuen Branch committen" />
+        @if (_toNewBranch)
+        {
+            <MudTextField @bind-Value="_newBranch" Label="Name des neuen Branches" Variant="Variant.Outlined"
+                          Margin="Margin.Dense" Immediate="true" Disabled="Busy"
+                          spellcheck="false" autocapitalize="off" autocomplete="off" />
+            <MudCheckBox @bind-Value="_pullRequest" Disabled="Busy" Color="Color.Primary" Dense="true"
+                         Label="@($"Pull Request nach {Branch} erstellen")" />
+        }
+
+        @if (!Online)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="my-2">
+                Offline: Committen geht, sobald wieder eine Verbindung besteht. Deine Änderungen bleiben bis dahin auf dem Gerät.
+            </MudAlert>
+        }
+
+        <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                   Class="mt-2" Disabled="!CanCommit" StartIcon="@Icons.Material.Filled.CloudUpload">
+            @if (Busy)
+            {
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+            }
+            @(_toNewBranch ? "Committen & Branch erstellen" : $"Committen & auf {Branch} pushen")
+        </MudButton>
+    </form>
+}
+
+@code {
+    private string _message = "";
+    private bool _toNewBranch;
+    private string _newBranch = "";
+    private bool _pullRequest = true;
+
+    [Parameter, EditorRequired] public IReadOnlyList<CachedFile> Changes { get; set; } = [];
+    [Parameter, EditorRequired] public string Branch { get; set; } = "";
+    [Parameter] public string? SelectedKey { get; set; }
+    [Parameter] public bool Online { get; set; } = true;
+    [Parameter] public bool Busy { get; set; }
+
+    [Parameter] public EventCallback<CachedFile> Selected { get; set; }
+    [Parameter] public EventCallback<CachedFile> Discard { get; set; }
+    [Parameter] public EventCallback<CommitOptions> Commit { get; set; }
+
+    private bool CanCommit =>
+        !Busy && Online && Changes.Count > 0 && !string.IsNullOrWhiteSpace(_message)
+        && (!_toNewBranch || !string.IsNullOrWhiteSpace(_newBranch));
+
+    private async Task SubmitAsync()
+    {
+        if (CanCommit)
+            await Commit.InvokeAsync(new CommitOptions(_message, _toNewBranch ? _newBranch.Trim() : null, _toNewBranch && _pullRequest));
+    }
+
+    /// <summary>Leert das Formular nach einem erfolgreichen Commit.</summary>
+    public void Reset()
+    {
+        _message = "";
+        _toNewBranch = false;
+        _newBranch = "";
+        _pullRequest = true;
+        StateHasChanged();
+    }
+
+    private static string ChangeLetter(ChangeKind kind) => kind switch
+    {
+        ChangeKind.Added => "A",
+        ChangeKind.Deleted => "D",
+        _ => "M"
+    };
+
+    private static string ChangeLabel(ChangeKind kind) => kind switch
+    {
+        ChangeKind.Added => "Neu",
+        ChangeKind.Deleted => "Gelöscht",
+        _ => "Geändert"
+    };
+
+    public sealed record CommitOptions(string Message, string? NewBranch, bool CreatePullRequest);
+}

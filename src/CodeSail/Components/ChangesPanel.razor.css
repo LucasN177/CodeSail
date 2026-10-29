@@ -1,0 +1,20 @@
+.change-badge {
+    flex: 0 0 auto;
+    width: 20px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.8rem;
+    font-family: monospace;
+}
+
+.change-modified {
+    color: var(--mud-palette-warning);
+}
+
+.change-added {
+    color: var(--mud-palette-success);
+}
+
+.change-deleted {
+    color: var(--mud-palette-error);
+}

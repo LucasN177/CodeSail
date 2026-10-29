@@ -1,0 +1,78 @@
+@* Zeigt den Unterschied zwischen dem Stand auf GitHub und der lokalen Fassung einer Datei (nur lesend). *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<StandaloneDiffEditor @ref="_diff" Id="codesail-diff" CssClass="codesail-editor"
+                      ConstructionOptions="Options" OnDidInit="OnInitAsync" />
+
+@code {
+    private static int _counter;
+
+    private StandaloneDiffEditor? _diff;
+    private bool _initialized;
+    private (string Key, DateTimeOffset Version)? _shown;
+    private TextModel? _original;
+    private TextModel? _modified;
+
+    [Parameter] public CachedFile? File { get; set; }
+
+    private StandaloneDiffEditorConstructionOptions Options(StandaloneDiffEditor editor) => new()
+    {
+        AutomaticLayout = true,
+        Theme = "vs-dark",
+        ReadOnly = true,
+        OriginalEditable = false,
+        RenderSideBySide = true,
+        FontSize = 14,
+        ScrollBeyondLastLine = false
+    };
+
+    private async Task OnInitAsync()
+    {
+        _initialized = true;
+        await ShowAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_initialized && File is not null && _shown != (File.Key, File.UpdatedAt))
+            await ShowAsync();
+    }
+
+    private async Task ShowAsync()
+    {
+        if (File is null || _diff is null)
+            return;
+
+        // Eigene URIs je Anzeige, damit sie nicht mit den Modellen des Editors kollidieren;
+        // die Dateiendung am Ende sorgt für die passende Syntaxhervorhebung
+        var id = Interlocked.Increment(ref _counter);
+        var path = string.Join('/', File.Path.Split('/').Select(Uri.EscapeDataString));
+        var original = await Global.CreateModel(JS, File.IsNew ? "" : File.OriginalContent, null, $"file:///diff/{id}/original/{path}");
+        var modified = await Global.CreateModel(JS, File.Deleted ? "" : File.Content, null, $"file:///diff/{id}/modified/{path}");
+
+        await _diff.SetModel(new DiffEditorModel { Original = original, Modified = modified });
+        await DisposeModelsAsync();
+        (_original, _modified) = (original, modified);
+        _shown = (File.Key, File.UpdatedAt);
+    }
+
+    private async Task DisposeModelsAsync()
+    {
+        if (_original is not null)
+            await _original.DisposeModel();
+        if (_modified is not null)
+            await _modified.DisposeModel();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await DisposeModelsAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+}

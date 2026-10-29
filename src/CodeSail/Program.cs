@@ -14,10 +14,12 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 builder.Services.AddMudServices();
 
 builder.Services.AddScoped<ITokenStore, BrowserTokenStore>();
-builder.Services.AddScoped<IGitHubService, GitHubService>();
+// Ausdrücklich ohne den HttpClient der App, der auf die eigene Adresse statt auf api.github.com zeigt
+builder.Services.AddScoped<IGitHubService>(sp => new GitHubService(sp.GetRequiredService<ITokenStore>()));
 builder.Services.AddScoped<IFileCache, IndexedDbFileCache>();
 builder.Services.AddScoped<BrowserEnvironment>();
 builder.Services.AddScoped<WorkspaceService>();
+builder.Services.AddScoped<CommitService>();
 builder.Services.AddScoped<AuthState>();
 
 await builder.Build().RunAsync();

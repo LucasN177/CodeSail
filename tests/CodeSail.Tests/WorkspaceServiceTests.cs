@@ -105,7 +105,7 @@ public class WorkspaceServiceTests
         Assert.Equal(1, await _workspace.CountDirtyFilesAsync());
 
         var discarded = await _workspace.DiscardChangesAsync(edited);
-        Assert.False(discarded.IsDirty);
+        Assert.False(discarded!.IsDirty);
         Assert.Equal("v1", _cache.Files[file.Key].Content);
     }
 

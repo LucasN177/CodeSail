@@ -11,9 +11,11 @@ public sealed class FileNode(string name, string path, bool isFolder)
     public List<FileNode> Children { get; } = [];
 }
 
+/// <param name="Entries">Flache Liste wie von der Git-Trees-API geliefert.</param>
 /// <param name="BlobShas">Pfad → Blob-SHA jeder Datei, um geänderte Dateien zu erkennen.</param>
 public sealed record RepoTree(
     string Sha,
+    IReadOnlyList<TreeEntry> Entries,
     IReadOnlyList<FileNode> Root,
     IReadOnlyList<string> FilePaths,
     IReadOnlyDictionary<string, string> BlobShas,
@@ -24,6 +26,7 @@ public sealed record RepoTree(
         var files = entries.Where(e => !e.IsFolder).ToList();
         return new RepoTree(
             sha,
+            entries.ToList(),
             TreeBuilder.Build(entries),
             files.Select(e => e.Path).ToList(),
             files.Where(e => e.Sha is not null).ToDictionary(e => e.Path, e => e.Sha!),

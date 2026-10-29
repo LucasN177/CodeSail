@@ -86,7 +86,13 @@ Abweichungen/offen: Schriftgröße per Pinch und Cmd+P (Schnellsuche) fehlen noc
 
 *Fertig, wenn:* Datei öffnen → Flugmodus → bearbeiten → App neu starten → Änderungen sind noch da.
 
-## Phase 3 – Commit- & Branch-Workflow
+## Phase 3 – Commit- & Branch-Workflow ✅ (umgesetzt, Test mit echtem Token auf dem iPad offen)
+
+Umgesetzt in `Services/CommitService.cs` (ein Commit über Git-Data-API: Baum mit `base_tree` und Inhalten direkt im Tree-Request statt einzelner Blobs → Commit → Ref-Update ohne `force`), `Components/ChangesPanel.razor` (Änderungsliste mit M/A/D, Commit-Formular, neuer Branch + Pull Request), `Components/DiffView.razor` (Monaco-Diff), `Components/TextPromptDialog.razor` sowie Datei-Operationen und Branch-Anlage im `WorkspaceService`. Git-Data-Aufrufe laufen direkt per HTTP, weil Octokit `"sha": null` (Löschen) weglässt und Branch-Namen mit `/` kodiert.
+
+Konfliktregel: Eine Datei ist im Konflikt, wenn ihre Blob-SHA auf GitHub nicht mehr der SHA entspricht, von der aus lokal bearbeitet wurde. Änderungen an *anderen* Dateien auf GitHub sind kein Konflikt; der Commit setzt dann auf dem neuen Stand auf. Bei Konflikten entscheidet der Nutzer: eigene Fassung committen (überschreibt) oder abbrechen und die Datei verwerfen. Verschiebt jemand den Branch genau zwischen Prüfung und Push, lehnt GitHub das Update ab und der Ablauf wiederholt sich einmal.
+
+Abweichungen: Eine eigene Offline-Warteschlange ist nicht nötig, da lokale Änderungen ohnehin erhalten bleiben; offline ist der Commit-Button gesperrt. Ein Diff „lokal vs. aktueller GitHub-Stand“ bei Konflikten fehlt noch (angezeigt wird lokal vs. Ausgangsstand).
 
 1. **Änderungsübersicht:** alle `dirty`-Dateien des Repos, Diff-Ansicht mit Monacos `DiffEditor`.
 2. **Commit über die Git-Data-API** (ein atomarer Commit für mehrere Dateien):

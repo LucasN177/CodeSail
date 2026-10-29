@@ -69,10 +69,16 @@ else
         if (ReferenceEquals(Tree, _renderedTree))
             return;
 
+        // Aufgeklappte Ordner bleiben offen, wenn der Baum z. B. nach dem Anlegen einer Datei neu aufgebaut wird
+        var expanded = ExpandedPaths(_items).ToHashSet();
         _renderedTree = Tree;
-        _items = ToItems(Tree.Root);
+        _items = ToItems(Tree.Root, expanded);
         _selected = null;
     }
+
+    private static IEnumerable<string> ExpandedPaths(IEnumerable<ITreeItemData<FileNode>> items) =>
+        items.Where(i => i.Expanded)
+            .SelectMany(i => ExpandedPaths(i.Children ?? []).Prepend(i.Value!.Path));
 
     private async Task OnSelectedAsync(FileNode? node)
     {
@@ -94,13 +100,14 @@ else
 
     private static string FileName(string path) => path[(path.LastIndexOf('/') + 1)..];
 
-    private static List<TreeItemData<FileNode>> ToItems(IEnumerable<FileNode> nodes) =>
+    private static List<TreeItemData<FileNode>> ToItems(IEnumerable<FileNode> nodes, IReadOnlySet<string> expanded) =>
         nodes.Select(n => new TreeItemData<FileNode>
         {
             Value = n,
             Text = n.Name,
             Icon = n.IsFolder ? Icons.Material.Filled.Folder : Icons.Material.Outlined.InsertDriveFile,
             Expandable = n.IsFolder,
-            Children = n.IsFolder ? ToItems(n.Children) : null
+            Expanded = n.IsFolder && expanded.Contains(n.Path),
+            Children = n.IsFolder ? ToItems(n.Children, expanded) : null
         }).ToList();
 }

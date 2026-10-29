@@ -1,9 +1,12 @@
 @page "/repo/{Owner}/{Name}"
+@implements IDisposable
 @inject WorkspaceService RepoData
+@inject CommitService Commits
 @inject BrowserEnvironment Browser
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
+@inject IJSRuntime JS
 
 <PageTitle>CodeSail – @(ActiveFile?.Name ?? $"{Owner}/{Name}")</PageTitle>
 
@@ -24,14 +27,20 @@
 
             @if (_branches is not null)
             {
-                <MudSelect T="BranchInfo" Value="_branch" ValueChanged="OnBranchChanged" Label="Branch"
-                           Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true" Class="mb-2"
-                           ToStringFunc="@(b => b?.Name ?? "")" AdornmentIcon="@Icons.Material.Filled.AccountTree">
-                    @foreach (var branch in _branches)
-                    {
-                        <MudSelectItem Value="branch">@branch.Name</MudSelectItem>
-                    }
-                </MudSelect>
+                <div class="d-flex align-center gap-1 mb-2">
+                    <MudSelect T="BranchInfo" Value="_branch" ValueChanged="OnBranchChanged" Label="Branch"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" Dense="true"
+                               ToStringFunc="@(b => b?.Name ?? "")" AdornmentIcon="@Icons.Material.Filled.AccountTree">
+                        @foreach (var branch in _branches)
+                        {
+                            <MudSelectItem Value="branch">@branch.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudTooltip Text="Neuen Branch anlegen">
+                        <MudIconButton Icon="@Icons.Material.Filled.AddCircleOutline" OnClick="CreateBranchAsync"
+                                       Disabled="@(!Browser.IsOnline)" aria-label="Neuen Branch anlegen" />
+                    </MudTooltip>
+                </div>
             }
 
             @if (_error is not null)
@@ -41,19 +50,32 @@
                     <MudButton Variant="Variant.Text" Color="Color.Inherit" Size="Size.Small" OnClick="ReloadAsync">Erneut versuchen</MudButton>
                 </MudAlert>
             }
-            else if (_tree is null)
+            else if (_displayTree is null)
             {
                 <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
             }
             else
             {
-                @if (_tree.Truncated)
-                {
-                    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
-                        Das Repository ist sehr groß, GitHub hat nicht alle Dateien geliefert.
-                    </MudAlert>
-                }
-                <FileExplorer Tree="_tree" DirtyPaths="DirtyPaths" FileSelected="OpenFileAsync" />
+                <MudTabs Elevation="0" Rounded="false" KeepPanelsAlive="true" Centered="true" @bind-ActivePanelIndex="_sidePanel"
+                         TabPanelsClass="pt-2" MinimumTabWidth="100px">
+                    <MudTabPanel Text="Dateien" Icon="@Icons.Material.Outlined.Folder">
+                        @if (_displayTree.Truncated)
+                        {
+                            <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">
+                                Das Repository ist sehr groß, GitHub hat nicht alle Dateien geliefert.
+                            </MudAlert>
+                        }
+                        <MudButton StartIcon="@Icons.Material.Filled.NoteAdd" Size="Size.Small" Variant="Variant.Text"
+                                   OnClick="NewFileAsync" Class="mb-1">Neue Datei</MudButton>
+                        <FileExplorer Tree="_displayTree" DirtyPaths="DirtyPaths" FileSelected="OpenFileAsync" />
+                    </MudTabPanel>
+                    <MudTabPanel Text="Änderungen" Icon="@Icons.Material.Outlined.Difference"
+                                 BadgeData="@(_changes.Count > 0 ? _changes.Count : null)" BadgeColor="Color.Warning">
+                        <ChangesPanel @ref="_changesPanel" Changes="_changes" Branch="@(_branch?.Name ?? "")"
+                                      SelectedKey="_diffKey" Online="Browser.IsOnline" Busy="_committing"
+                                      Selected="ShowDiff" Discard="DiscardAsync" Commit="CommitAsync" />
+                    </MudTabPanel>
+                </MudTabs>
             }
         </aside>
     }
@@ -61,13 +83,23 @@
     <section class="editor-area">
         <div class="editor-toolbar">
             <MudIconButton Icon="@(_explorerOpen ? Icons.Material.Filled.MenuOpen : Icons.Material.Filled.Menu)"
-                           OnClick="() => _explorerOpen = !_explorerOpen" aria-label="Explorer umschalten" />
+                           OnClick="() => _explorerOpen = !_explorerOpen" aria-label="Seitenleiste umschalten" />
 
             <div class="tabs" role="tablist">
+                @if (DiffFile is { } diff)
+                {
+                    <div class="tab active" role="tab" title="@($"Änderungen: {diff.Path}")" aria-selected="true">
+                        <MudIcon Icon="@Icons.Material.Outlined.Difference" Size="Size.Small" />
+                        <span class="tab-name">@diff.Name</span>
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Class="tab-close"
+                                       OnClick="() => _diffKey = null" aria-label="Vergleich schließen" />
+                    </div>
+                }
                 @foreach (var file in _openFiles)
                 {
-                    <div class="tab @(file.Key == _activeKey ? "active" : "")" role="tab" title="@file.Path"
-                         aria-selected="@(file.Key == _activeKey)" @onclick="() => _activeKey = file.Key">
+                    var active = DiffFile is null && file.Key == _activeKey;
+                    <div class="tab @(active ? "active" : "")" role="tab" title="@file.Path"
+                         aria-selected="@active" @onclick="() => ActivateTab(file.Key)">
                         <span class="tab-name">@file.Name</span>
                         @if (file.IsDirty)
                         {
@@ -79,20 +111,31 @@
                 }
             </div>
 
-            @if (ActiveFile is { IsDirty: true })
+            @if (DiffFile is null && ActiveFile is { } current)
             {
                 <MudMenu Icon="@Icons.Material.Filled.MoreVert" AnchorOrigin="Origin.BottomRight"
                          TransformOrigin="Origin.TopRight" aria-label="Dateiaktionen">
-                    <MudMenuItem Icon="@Icons.Material.Filled.Undo" OnClick="DiscardChangesAsync">Änderungen verwerfen</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Outlined.Difference" Disabled="!current.IsDirty"
+                                 OnClick="() => ShowDiff(current)">Änderungen anzeigen</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Filled.DriveFileRenameOutline" OnClick="RenameActiveAsync">Umbenennen / verschieben</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Filled.Undo" Disabled="!current.IsDirty"
+                                 OnClick="() => DiscardAsync(current)">Änderungen verwerfen</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Filled.Delete" IconColor="Color.Error" OnClick="DeleteActiveAsync">Datei löschen</MudMenuItem>
                 </MudMenu>
             }
         </div>
 
-        <div class="editor-host @(ActiveFile is null ? "hidden" : "")">
+        <div class="editor-host @(ActiveFile is null || DiffFile is not null ? "hidden" : "")">
             <SourceEditor @ref="_editor" File="ActiveFile" ContentChanged="OnContentChangedAsync" SaveRequested="OnSaveRequested" />
         </div>
 
-        @if (ActiveFile is null)
+        @if (DiffFile is not null)
+        {
+            <div class="editor-host">
+                <DiffView File="DiffFile" />
+            </div>
+        }
+        else if (ActiveFile is null)
         {
             <div class="editor-placeholder">
                 <MudIcon Icon="@Icons.Material.Outlined.Code" Size="Size.Large" />
@@ -106,6 +149,8 @@
     private IReadOnlyList<BranchInfo>? _branches;
     private BranchInfo? _branch;
     private RepoTree? _tree;
+    private RepoTree? _displayTree;
+    private string? _treeSignature;
     private bool _fromCache;
     private string? _error;
     private bool _explorerOpen = true;
@@ -115,6 +160,12 @@
     private string? _activeKey;
     private SourceEditor? _editor;
 
+    private List<CachedFile> _changes = [];
+    private string? _diffKey;
+    private int _sidePanel;
+    private bool _committing;
+    private ChangesPanel? _changesPanel;
+
     [Parameter] public string Owner { get; set; } = "";
     [Parameter] public string Name { get; set; } = "";
 
@@ -122,7 +173,11 @@
 
     private CachedFile? ActiveFile => _openFiles.FirstOrDefault(f => f.Key == _activeKey);
 
-    private IReadOnlySet<string> DirtyPaths => _openFiles.Where(f => f.IsDirty).Select(f => f.Path).ToHashSet();
+    private CachedFile? DiffFile => _changes.FirstOrDefault(f => f.Key == _diffKey);
+
+    private IReadOnlySet<string> DirtyPaths => _changes.Where(f => !f.Deleted).Select(f => f.Path).ToHashSet();
+
+    protected override void OnInitialized() => Browser.ConnectivityChanged += OnConnectivityChanged;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -154,26 +209,66 @@
         if (_branches.Count == 0)
             throw new InvalidOperationException("Das Repository ist leer.");
 
-        _branch = _branches.FirstOrDefault(b => b.Name == loaded.Value.DefaultBranch) ?? _branches[0];
+        _branch = _branches.FirstOrDefault(b => b.Name == BranchName)
+            ?? _branches.FirstOrDefault(b => b.Name == loaded.Value.DefaultBranch)
+            ?? _branches[0];
         _loadedRepo = $"{Owner}/{Name}";
     }
 
+    /// <summary>Lädt den Baum eines Branches. Offene Tabs bleiben offen, sofern es die Dateien dort gibt.</summary>
     private async Task LoadTreeAsync(BranchInfo branch)
     {
+        var reopen = _openFiles.Select(f => f.Path).ToList();
+        var activePath = ActiveFile?.Path;
+
         _error = null;
         _branch = branch;
         _tree = null;
+        _displayTree = null;
+        _diffKey = null;
         await CloseAllFilesAsync();
         StateHasChanged();
 
         var loaded = await RepoData.LoadTreeAsync(Owner, Name, branch);
         _tree = loaded.Value;
         _fromCache |= loaded.FromCache;
+        await RefreshChangesAsync();
 
         // Lokal geänderte Dateien wieder öffnen, damit nach einem Neustart nichts übersehen wird
         foreach (var file in await RepoData.GetDirtyFilesAsync(Owner, Name, branch.Name))
             _openFiles.Add(file);
-        _activeKey = _openFiles.LastOrDefault()?.Key;
+
+        foreach (var path in reopen.Where(p => _openFiles.All(f => f.Path != p) && _displayTree!.FilePaths.Contains(p)))
+        {
+            try
+            {
+                _openFiles.Add(await RepoData.OpenFileAsync(Owner, Name, branch.Name, path, _tree.BlobShas.GetValueOrDefault(path)));
+            }
+            catch (Exception)
+            {
+                // Nicht mehr ladbare Dateien werden einfach nicht wieder geöffnet
+            }
+        }
+
+        _activeKey = (_openFiles.FirstOrDefault(f => f.Path == activePath) ?? _openFiles.LastOrDefault())?.Key;
+    }
+
+    /// <summary>Liest die lokalen Änderungen neu und aktualisiert den angezeigten Baum, falls Dateien hinzukamen oder fehlen.</summary>
+    private async Task RefreshChangesAsync()
+    {
+        if (_branch is null || _tree is null)
+            return;
+
+        _changes = (await RepoData.GetChangesAsync(Owner, Name, _branch.Name)).ToList();
+        if (_diffKey is not null && DiffFile is null)
+            _diffKey = null;
+
+        var signature = string.Join('|', _changes.Where(f => f.IsNew || f.Deleted).Select(f => $"{f.Change}:{f.Path}"));
+        if (_displayTree is null || signature != _treeSignature)
+        {
+            _displayTree = WorkspaceService.ApplyLocalChanges(_tree, _changes);
+            _treeSignature = signature;
+        }
     }
 
     private async Task OpenFileAsync(string path)
@@ -196,9 +291,15 @@
             }
         }
 
-        _activeKey = open.Key;
+        ActivateTab(open.Key);
         if (await Browser.IsNarrowAsync())
             _explorerOpen = false;
+    }
+
+    private void ActivateTab(string key)
+    {
+        _activeKey = key;
+        _diffKey = null;
     }
 
     private async Task OnContentChangedAsync((string Key, string Content) change)
@@ -209,7 +310,14 @@
 
         try
         {
+            var wasDirty = _openFiles[index].IsDirty;
             _openFiles[index] = await RepoData.SaveContentAsync(_openFiles[index], change.Content);
+
+            var changeIndex = _changes.FindIndex(f => f.Key == change.Key);
+            if (changeIndex >= 0)
+                _changes[changeIndex] = _openFiles[index];
+            if (wasDirty != _openFiles[index].IsDirty)
+                await RefreshChangesAsync();
         }
         catch (Exception ex)
         {
@@ -227,6 +335,8 @@
             await _editor.CloseFileAsync(file.Key);
 
         var index = _openFiles.FindIndex(f => f.Key == file.Key);
+        if (index < 0)
+            return;
         _openFiles.RemoveAt(index);
         if (_activeKey == file.Key)
             _activeKey = _openFiles.Count == 0 ? null : _openFiles[Math.Min(index, _openFiles.Count - 1)].Key;
@@ -238,22 +348,222 @@
             await CloseFileAsync(file);
     }
 
-    private async Task DiscardChangesAsync()
+    private async Task ShowDiff(CachedFile file)
+    {
+        if (_editor is not null)
+            await _editor.FlushAsync();
+        await RefreshChangesAsync();
+        _diffKey = file.Key;
+        if (await Browser.IsNarrowAsync())
+            _explorerOpen = false;
+    }
+
+    private async Task DiscardAsync(CachedFile file)
+    {
+        var what = file.Change switch
+        {
+            ChangeKind.Added => $"Die neue Datei {file.Name} wird entfernt.",
+            ChangeKind.Deleted => $"{file.Name} wird wiederhergestellt.",
+            _ => $"Alle lokalen Änderungen an {file.Name} gehen verloren."
+        };
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Änderungen verwerfen?", what, yesText: "Verwerfen", cancelText: "Abbrechen");
+        if (confirmed != true)
+            return;
+
+        if (_editor is not null)
+            await _editor.FlushAsync();
+
+        var current = await RepoData.DiscardChangesAsync(_openFiles.FirstOrDefault(f => f.Key == file.Key) ?? file);
+        var index = _openFiles.FindIndex(f => f.Key == file.Key);
+        if (current is null)
+        {
+            if (index >= 0)
+                await CloseFileAsync(_openFiles[index]);
+        }
+        else if (index >= 0)
+        {
+            _openFiles[index] = current;
+            if (_editor is not null)
+                await _editor.SetContentAsync(file.Key, current.Content);
+        }
+
+        await RefreshChangesAsync();
+    }
+
+    private async Task NewFileAsync()
+    {
+        if (_branch is null || _displayTree is null)
+            return;
+
+        var folder = ActiveFile?.Path is { } p && p.Contains('/') ? p[..(p.LastIndexOf('/') + 1)] : "";
+        var path = await TextPromptDialog.ShowAsync(Dialogs, "Neue Datei", "Pfad im Repository", folder, "Anlegen",
+            "Ordner werden mit / angegeben, z. B. docs/anleitung.md. Fehlende Ordner entstehen automatisch.");
+        if (path is null)
+            return;
+
+        try
+        {
+            var file = await RepoData.CreateFileAsync(Owner, Name, _branch.Name, path, _displayTree);
+            _openFiles.Add(file);
+            ActivateTab(file.Key);
+            await RefreshChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(GitHubErrors.Describe(ex), Severity.Error);
+        }
+    }
+
+    private async Task RenameActiveAsync()
+    {
+        if (ActiveFile is not { } file || _displayTree is null)
+            return;
+
+        var path = await TextPromptDialog.ShowAsync(Dialogs, "Umbenennen / verschieben", "Neuer Pfad", file.Path, "Umbenennen");
+        if (path is null || path == file.Path)
+            return;
+
+        try
+        {
+            if (_editor is not null)
+                await _editor.FlushAsync();
+            var current = _openFiles.First(f => f.Key == file.Key);
+            var renamed = await RepoData.RenameFileAsync(current, path, _displayTree);
+            await CloseFileAsync(current);
+            _openFiles.Add(renamed);
+            ActivateTab(renamed.Key);
+            await RefreshChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(GitHubErrors.Describe(ex), Severity.Error);
+        }
+    }
+
+    private async Task DeleteActiveAsync()
     {
         if (ActiveFile is not { } file)
             return;
 
-        var confirmed = await Dialogs.ShowMessageBoxAsync(
-            "Änderungen verwerfen?",
-            $"Alle lokalen Änderungen an {file.Name} gehen verloren.",
-            yesText: "Verwerfen", cancelText: "Abbrechen");
+        var message = file.IsNew
+            ? $"Die neue Datei {file.Name} wurde noch nie committet und wird sofort entfernt."
+            : $"{file.Name} wird beim nächsten Commit auf GitHub gelöscht. Bis dahin kannst du das unter \"Änderungen\" rückgängig machen.";
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Datei löschen?", message, yesText: "Löschen", cancelText: "Abbrechen");
         if (confirmed != true)
             return;
 
-        var index = _openFiles.FindIndex(f => f.Key == file.Key);
-        _openFiles[index] = await RepoData.DiscardChangesAsync(file);
         if (_editor is not null)
-            await _editor.SetContentAsync(file.Key, file.OriginalContent);
+            await _editor.FlushAsync();
+        await RepoData.DeleteFileAsync(_openFiles.First(f => f.Key == file.Key));
+        await CloseFileAsync(file);
+        await RefreshChangesAsync();
+    }
+
+    private async Task CommitAsync(ChangesPanel.CommitOptions options)
+    {
+        if (_branch is null || _branches is null)
+            return;
+
+        _committing = true;
+        try
+        {
+            if (_editor is not null)
+                await _editor.FlushAsync();
+            await RefreshChangesAsync();
+
+            if (options.NewBranch is not null)
+                WorkspaceService.ValidateBranchName(options.NewBranch, _branches);
+
+            var request = new CommitRequest(Owner, Name, _branch.Name, options.Message, _changes,
+                options.NewBranch, options.CreatePullRequest);
+            var result = await Commits.CommitAsync(request);
+
+            if (!result.Succeeded && await ConfirmOverwriteAsync(result.Conflicts))
+                result = await Commits.CommitAsync(request with { OverwriteConflicts = true });
+            if (!result.Succeeded)
+                return;
+
+            _changesPanel?.Reset();
+            ReportSuccess(result);
+            await ReloadAfterCommitAsync(result.TargetBranch);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(GitHubErrors.Describe(ex), Severity.Error);
+        }
+        finally
+        {
+            _committing = false;
+        }
+    }
+
+    private async Task<bool> ConfirmOverwriteAsync(IReadOnlyList<string> conflicts)
+    {
+        var files = string.Join("", conflicts.Select(c => $"<li><code>{System.Net.WebUtility.HtmlEncode(c)}</code></li>"));
+        var message = new MarkupString(
+            "<p>Diese Dateien wurden auf GitHub geändert, seit du sie geöffnet hast:</p>" +
+            $"<ul style=\"margin: 8px 0 8px 20px\">{files}</ul>" +
+            "<p>Wenn du trotzdem committest, ersetzt deine Fassung die Änderungen auf GitHub. " +
+            "Alternativ verwirfst du deine Änderung an der Datei, lädst damit den neuen Stand und überträgst deine Anpassung erneut.</p>");
+
+        return await Dialogs.ShowMessageBoxAsync("Konflikt", message,
+            yesText: "Meine Fassung committen", cancelText: "Abbrechen") == true;
+    }
+
+    private void ReportSuccess(CommitResult result)
+    {
+        var shortSha = result.CommitSha![..7];
+        if (result.PullRequestUrl is { } url)
+        {
+            Snackbar.Add($"Commit {shortSha} auf {result.TargetBranch} gepusht und Pull Request erstellt.", Severity.Success, o =>
+            {
+                o.RequireInteraction = true;
+                o.Action = "Öffnen";
+                o.OnClick = _ => JS.InvokeVoidAsync("open", url, "_blank").AsTask();
+            });
+        }
+        else
+        {
+            Snackbar.Add($"Commit {shortSha} auf {result.TargetBranch} gepusht.", Severity.Success);
+        }
+    }
+
+    private async Task ReloadAfterCommitAsync(string targetBranch)
+    {
+        _loadedRepo = null;
+        _tree = null;
+        if (targetBranch != _branch?.Name)
+        {
+            // Neuer Branch: die URL-Änderung lädt Branches und Baum neu
+            Nav.NavigateTo(Nav.GetUriWithQueryParameter("branch", targetBranch), replace: true);
+            return;
+        }
+        await OnParametersSetAsync();
+    }
+
+    private async Task CreateBranchAsync()
+    {
+        if (_branch is null || _branches is null)
+            return;
+
+        var name = await TextPromptDialog.ShowAsync(Dialogs, "Neuer Branch", "Name", "", "Anlegen",
+            $"Der Branch startet beim aktuellen Stand von {_branch.Name} auf GitHub. " +
+            "Lokale Änderungen bleiben auf dem bisherigen Branch; um sie in einen neuen Branch zu committen, " +
+            "nutze unter \"Änderungen\" die Option \"In neuen Branch committen\".");
+        if (name is null)
+            return;
+
+        try
+        {
+            var created = await RepoData.CreateBranchAsync(Owner, Name, _branch.Name, name, _branches);
+            Snackbar.Add($"Branch {created.Name} angelegt.", Severity.Success);
+            _loadedRepo = null;
+            Nav.NavigateTo(Nav.GetUriWithQueryParameter("branch", created.Name), replace: true);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(GitHubErrors.Describe(ex), Severity.Error);
+        }
     }
 
     private void OnBranchChanged(BranchInfo branch) =>
@@ -265,4 +575,8 @@
         _loadedRepo = null;
         await OnParametersSetAsync();
     }
+
+    private void OnConnectivityChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Browser.ConnectivityChanged -= OnConnectivityChanged;
 }
