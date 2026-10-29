@@ -1,0 +1,96 @@
+@* Datei-Baum eines Repositorys. Mit Suchbegriff wird statt des Baums eine flache Trefferliste angezeigt. *@
+
+<MudTextField @bind-Value="_filter" Placeholder="Datei suchen…" Variant="Variant.Outlined" Margin="Margin.Dense"
+              Immediate="true" DebounceInterval="150" Clearable="true" Adornment="Adornment.Start"
+              AdornmentIcon="@Icons.Material.Filled.Search" Class="mb-2"
+              spellcheck="false" autocapitalize="off" />
+
+@if (string.IsNullOrWhiteSpace(_filter))
+{
+    <MudTreeView T="FileNode" Items="_items" ExpandOnClick="true" Hover="true"
+                 SelectionMode="SelectionMode.SingleSelection"
+                 SelectedValue="_selected" SelectedValueChanged="OnSelectedAsync">
+        <ItemTemplate>
+            <MudTreeViewItem @bind-Expanded="@context.Expanded" Items="@context.Children" Value="@context.Value"
+                             Text="@context.Text" Icon="@context.Icon" CanExpand="@context.Expandable" />
+        </ItemTemplate>
+    </MudTreeView>
+}
+else
+{
+    var matches = Matches().ToList();
+    if (matches.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="pa-2 mud-text-secondary">Keine Treffer.</MudText>
+    }
+    else
+    {
+        <MudList T="string" Dense="true">
+            @foreach (var path in matches)
+            {
+                <MudListItem T="string" Value="path" Icon="@Icons.Material.Outlined.InsertDriveFile"
+                             OnClick="() => FileSelected.InvokeAsync(path)">
+                    <MudText Typo="Typo.body2">@FileName(path)</MudText>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@path</MudText>
+                </MudListItem>
+            }
+        </MudList>
+        @if (matches.Count == MaxMatches)
+        {
+            <MudText Typo="Typo.caption" Class="pa-2 mud-text-secondary">Nur die ersten @MaxMatches Treffer werden angezeigt.</MudText>
+        }
+    }
+}
+
+@code {
+    private const int MaxMatches = 200;
+
+    private List<TreeItemData<FileNode>> _items = [];
+    private RepoTree? _renderedTree;
+    private FileNode? _selected;
+    private string? _filter;
+
+    [Parameter, EditorRequired] public RepoTree Tree { get; set; } = default!;
+
+    [Parameter] public EventCallback<string> FileSelected { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(Tree, _renderedTree))
+            return;
+
+        _renderedTree = Tree;
+        _items = ToItems(Tree.Root);
+        _selected = null;
+    }
+
+    private async Task OnSelectedAsync(FileNode? node)
+    {
+        _selected = node;
+        if (node is { IsFolder: false })
+            await FileSelected.InvokeAsync(node.Path);
+    }
+
+    private IEnumerable<string> Matches()
+    {
+        var term = _filter!.Trim();
+        // Treffer im Dateinamen zuerst, danach Treffer im Pfad
+        return Tree.FilePaths
+            .Where(p => p.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => FileName(p).Contains(term, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(p => p.Length)
+            .Take(MaxMatches);
+    }
+
+    private static string FileName(string path) => path[(path.LastIndexOf('/') + 1)..];
+
+    private static List<TreeItemData<FileNode>> ToItems(IEnumerable<FileNode> nodes) =>
+        nodes.Select(n => new TreeItemData<FileNode>
+        {
+            Value = n,
+            Text = n.Name,
+            Icon = n.IsFolder ? Icons.Material.Filled.Folder : Icons.Material.Outlined.InsertDriveFile,
+            Expandable = n.IsFolder,
+            Children = n.IsFolder ? ToItems(n.Children) : null
+        }).ToList();
+}

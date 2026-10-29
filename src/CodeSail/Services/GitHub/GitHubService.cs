@@ -9,26 +9,68 @@ public sealed class GitHubService(ITokenStore tokenStore) : IGitHubService
 {
     private static readonly ProductHeaderValue Product = new("CodeSail");
 
-    public async Task<string> GetCurrentUserLoginAsync(CancellationToken ct = default)
+    private GitHubClient? _client;
+    private string? _clientToken;
+
+    public RateLimitInfo? RateLimit { get; private set; }
+
+    public event Action? RateLimitChanged;
+
+    public async Task<string> GetCurrentUserLoginAsync()
     {
-        var client = await CreateClientAsync();
+        var client = await GetClientAsync();
         var user = await client.User.Current();
+        UpdateRateLimit(client);
         return user.Login;
     }
 
-    public async Task<IReadOnlyList<RepoSummary>> GetRepositoriesAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<RepoSummary>> GetRepositoriesAsync()
     {
-        var client = await CreateClientAsync();
+        var client = await GetClientAsync();
         var repos = await client.Repository.GetAllForCurrent(new RepositoryRequest { Sort = RepositorySort.Updated });
-        return repos
-            .Select(r => new RepoSummary(r.Id, r.Owner.Login, r.Name, r.DefaultBranch, r.Private))
-            .ToList();
+        UpdateRateLimit(client);
+        return repos.Select(ToSummary).ToList();
     }
 
-    private async Task<GitHubClient> CreateClientAsync()
+    public async Task<RepoSummary> GetRepositoryAsync(string owner, string name)
+    {
+        var client = await GetClientAsync();
+        var repo = await client.Repository.Get(owner, name);
+        UpdateRateLimit(client);
+        return ToSummary(repo);
+    }
+
+    public async Task<IReadOnlyList<BranchInfo>> GetBranchesAsync(string owner, string name)
+    {
+        var client = await GetClientAsync();
+        var branches = await client.Repository.Branch.GetAll(owner, name);
+        UpdateRateLimit(client);
+        return branches.Select(b => new BranchInfo(b.Name, b.Commit.Sha)).ToList();
+    }
+
+    public async Task<RepoTree> GetTreeAsync(string owner, string name, string commitSha)
+    {
+        var client = await GetClientAsync();
+        var tree = await client.Git.Tree.GetRecursive(owner, name, commitSha);
+        UpdateRateLimit(client);
+
+        // Submodule (TreeType.Commit) können nicht geöffnet werden und werden ausgelassen
+        var entries = tree.Tree
+            .Where(t => t.Type.Value is TreeType.Blob or TreeType.Tree)
+            .Select(t => new TreeEntry(t.Path, t.Type.Value == TreeType.Tree))
+            .ToList();
+
+        var files = entries.Where(e => !e.IsFolder).Select(e => e.Path).ToList();
+        return new RepoTree(tree.Sha, TreeBuilder.Build(entries), files, tree.Truncated);
+    }
+
+    private async Task<GitHubClient> GetClientAsync()
     {
         var token = await tokenStore.GetTokenAsync()
             ?? throw new InvalidOperationException("Kein GitHub-Token hinterlegt.");
+
+        if (_client is not null && _clientToken == token)
+            return _client;
 
         // Octokits Standard-Handler setzt Optionen (z. B. Proxy/Decompression), die in WebAssembly
         // nicht unterstützt werden. Ein schlichter HttpClientHandler nutzt intern die Browser-fetch-API.
@@ -39,6 +81,20 @@ public sealed class GitHubService(ITokenStore tokenStore) : IGitHubService
             new HttpClientAdapter(() => new HttpClientHandler()),
             new SimpleJsonSerializer());
 
-        return new GitHubClient(connection);
+        _client = new GitHubClient(connection);
+        _clientToken = token;
+        return _client;
     }
+
+    private void UpdateRateLimit(GitHubClient client)
+    {
+        if (client.GetLastApiInfo()?.RateLimit is not { } rate)
+            return;
+
+        RateLimit = new RateLimitInfo(rate.Limit, rate.Remaining, rate.Reset);
+        RateLimitChanged?.Invoke();
+    }
+
+    private static RepoSummary ToSummary(Repository r) =>
+        new(r.Id, r.Owner.Login, r.Name, r.DefaultBranch, r.Private, r.Description);
 }

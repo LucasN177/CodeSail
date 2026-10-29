@@ -1,11 +1,81 @@
 @page "/"
+@inject AuthState Auth
+@inject NavigationManager Nav
 
-<PageTitle>CodeSail</PageTitle>
+<PageTitle>CodeSail – Anmelden</PageTitle>
 
 <MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
     <MudText Typo="Typo.h4" GutterBottom="true">Willkommen bei CodeSail</MudText>
     <MudText Class="mb-4">
         Melde dich mit einem GitHub Fine-grained Personal Access Token an, um deine Repositories zu öffnen.
     </MudText>
-    @* Phase 1: Login-Formular (PAT) + Repo-Auswahl *@
+
+    <MudPaper Class="pa-4" Elevation="1">
+        <form @onsubmit="LoginAsync">
+            <MudTextField @bind-Value="_token" Label="Personal Access Token" Variant="Variant.Outlined"
+                          InputType="InputType.Password" Immediate="true" AutoFocus="true"
+                          Disabled="_busy" spellcheck="false" autocomplete="off" autocapitalize="off" />
+
+            <MudCheckBox @bind-Value="_remember" Disabled="_busy" Color="Color.Primary" Class="mt-2"
+                         Label="Angemeldet bleiben (Token bleibt auf diesem Gerät gespeichert)" />
+
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true" Class="my-2">@_error</MudAlert>
+            }
+
+            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary"
+                       Size="Size.Large" FullWidth="true" Class="mt-3"
+                       Disabled="@(_busy || string.IsNullOrWhiteSpace(_token))">
+                @if (_busy)
+                {
+                    <MudProgressCircular Size="Size.Small" Indeterminate="true" Class="mr-2" />
+                }
+                Anmelden
+            </MudButton>
+        </form>
+    </MudPaper>
+
+    <MudText Typo="Typo.body2" Class="mt-4 mud-text-secondary">
+        Noch kein Token?
+        <MudLink Href="https://github.com/settings/personal-access-tokens/new" Target="_blank">Token auf GitHub erstellen</MudLink>
+        mit den Rechten <b>Contents: Read and write</b> für die gewünschten Repositories.
+        Das Token wird nur in diesem Browser gespeichert.
+    </MudText>
 </MudContainer>
+
+@code {
+    private string _token = "";
+    private bool _remember;
+    private bool _busy;
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        if (Auth.IsAuthenticated)
+            Nav.NavigateTo("repos", replace: true);
+    }
+
+    private async Task LoginAsync()
+    {
+        if (_busy || string.IsNullOrWhiteSpace(_token))
+            return;
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await Auth.LoginAsync(_token, _remember);
+            _token = "";
+            Nav.NavigateTo("repos");
+        }
+        catch (Exception ex)
+        {
+            _error = GitHubErrors.Describe(ex);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -54,7 +54,9 @@ SECRETS.md                       benötigte Repo-Secrets
 
 **Manuell noch zu tun:** Repo → *Settings → Pages → Source: GitHub Actions* aktivieren (siehe `SECRETS.md`).
 
-## Phase 1 – Authentifizierung & Repository-Explorer
+## Phase 1 – Authentifizierung & Repository-Explorer ✅ (umgesetzt, Test mit echtem Token auf dem iPad offen)
+
+Umgesetzt in `Pages/Home.razor` (Login), `Pages/Repos.razor` (Repo-Auswahl), `Pages/Workspace.razor` + `Components/FileExplorer.razor` (Explorer mit Branch-Auswahl und Dateisuche), `Services/AuthState.cs` und `Layout/MainLayout.razor` (Zugriffsschutz, API-Kontingent, Abmelden).
 
 1. **Login-Seite** (`Pages/Home.razor`): Eingabefeld für Fine-grained PAT, Validierung über `GetCurrentUserLoginAsync`, verständliche Fehlermeldungen (401, fehlende Scopes, Rate-Limit).
 2. **Token-Handling:** sessionStorage als Standard, optional „Angemeldet bleiben“ (localStorage) mit deutlichem Hinweis. Logout löscht Token und Cache.

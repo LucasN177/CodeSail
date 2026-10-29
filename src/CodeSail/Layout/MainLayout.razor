@@ -1,4 +1,8 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject AuthState Auth
+@inject IGitHubService GitHub
+@inject NavigationManager Nav
 
 <MudThemeProvider IsDarkMode="true" />
 <MudPopoverProvider />
@@ -7,22 +11,80 @@
 
 <MudLayout>
     <MudAppBar Elevation="0" Dense="true">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
-                       OnClick="@(() => _drawerOpen = !_drawerOpen)" aria-label="Explorer umschalten" />
-        <MudText Typo="Typo.h6" Class="ml-2">⚓️ CodeSail</MudText>
+        <MudLink Href="@(Auth.IsAuthenticated ? "repos" : "")" Color="Color.Inherit" Underline="Underline.None">
+            <MudText Typo="Typo.h6">⚓️ CodeSail</MudText>
+        </MudLink>
         <MudSpacer />
+        @if (Auth.IsAuthenticated)
+        {
+            @if (GitHub.RateLimit is { } rate)
+            {
+                <MudTooltip Text="@($"Verbleibende GitHub-API-Anfragen, zurückgesetzt um {rate.ResetAt.ToLocalTime():HH:mm} Uhr")">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                             Color="@(rate.Remaining < 100 ? Color.Warning : Color.Default)">
+                        API @rate.Remaining / @rate.Limit
+                    </MudChip>
+                </MudTooltip>
+            }
+            <MudMenu Icon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit"
+                     AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" aria-label="Konto">
+                <MudMenuItem Icon="@Icons.Custom.Brands.GitHub" Disabled="true">@Auth.Login</MudMenuItem>
+                <MudMenuItem Icon="@Icons.Material.Filled.Logout" OnClick="LogoutAsync">Abmelden</MudMenuItem>
+            </MudMenu>
+        }
     </MudAppBar>
 
-    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="1" Width="280px">
-        <MudText Typo="Typo.subtitle2" Class="pa-4">Explorer</MudText>
-        @* Phase 1: Repository-Baum (RepoExplorer) *@
-    </MudDrawer>
-
-    <MudMainContent Class="codesail-main">
-        @Body
+    <MudMainContent>
+        @if (!Auth.IsInitialized || (!Auth.IsAuthenticated && !IsPublicPage()))
+        {
+            <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        }
+        else
+        {
+            @Body
+        }
     </MudMainContent>
 </MudLayout>
 
 @code {
-    private bool _drawerOpen = true;
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.Changed += OnStateChanged;
+        GitHub.RateLimitChanged += OnStateChanged;
+        await Auth.InitializeAsync();
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Alle Seiten außer Login und "Nicht gefunden" erfordern eine Anmeldung
+        if (Auth.IsInitialized && !Auth.IsAuthenticated && !IsPublicPage())
+            Nav.NavigateTo("", replace: true);
+    }
+
+    private bool IsPublicPage()
+    {
+        var path = Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0];
+        return path is "" or "not-found";
+    }
+
+    private async Task LogoutAsync()
+    {
+        await Auth.LogoutAsync();
+        Nav.NavigateTo("", replace: true);
+    }
+
+    private void OnStateChanged()
+    {
+        InvokeAsync(() =>
+        {
+            OnParametersSet();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        Auth.Changed -= OnStateChanged;
+        GitHub.RateLimitChanged -= OnStateChanged;
+    }
 }

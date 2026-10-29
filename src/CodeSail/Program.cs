@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using MudBlazor.Services;
 using CodeSail;
+using CodeSail.Services;
 using CodeSail.Services.GitHub;
 using CodeSail.Services.Storage;
 
@@ -14,5 +15,6 @@ builder.Services.AddMudServices();
 
 builder.Services.AddScoped<ITokenStore, BrowserTokenStore>();
 builder.Services.AddScoped<IGitHubService, GitHubService>();
+builder.Services.AddScoped<AuthState>();
 
 await builder.Build().RunAsync();

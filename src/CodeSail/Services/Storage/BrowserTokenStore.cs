@@ -3,19 +3,26 @@ using Microsoft.JSInterop;
 namespace CodeSail.Services.Storage;
 
 /// <summary>
-/// Hält das Token im sessionStorage, damit es beim Schließen des Tabs verfällt.
-/// Eine optionale "Angemeldet bleiben"-Variante (localStorage) folgt in Phase 1.
+/// Hält das Token standardmäßig im sessionStorage, damit es beim Schließen des Tabs verfällt.
+/// Mit "Angemeldet bleiben" landet es im localStorage.
 /// </summary>
 public sealed class BrowserTokenStore(IJSRuntime js) : ITokenStore
 {
     private const string Key = "codesail.github.token";
 
-    public ValueTask<string?> GetTokenAsync() =>
-        js.InvokeAsync<string?>("sessionStorage.getItem", Key);
+    public async ValueTask<string?> GetTokenAsync() =>
+        await js.InvokeAsync<string?>("sessionStorage.getItem", Key)
+        ?? await js.InvokeAsync<string?>("localStorage.getItem", Key);
 
-    public ValueTask SetTokenAsync(string token) =>
-        js.InvokeVoidAsync("sessionStorage.setItem", Key, token);
+    public async ValueTask SetTokenAsync(string token, bool persistent)
+    {
+        await ClearAsync();
+        await js.InvokeVoidAsync(persistent ? "localStorage.setItem" : "sessionStorage.setItem", Key, token);
+    }
 
-    public ValueTask ClearAsync() =>
-        js.InvokeVoidAsync("sessionStorage.removeItem", Key);
+    public async ValueTask ClearAsync()
+    {
+        await js.InvokeVoidAsync("sessionStorage.removeItem", Key);
+        await js.InvokeVoidAsync("localStorage.removeItem", Key);
+    }
 }

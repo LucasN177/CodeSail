@@ -4,6 +4,9 @@ namespace CodeSail.Services.Storage;
 public interface ITokenStore
 {
     ValueTask<string?> GetTokenAsync();
-    ValueTask SetTokenAsync(string token);
+
+    /// <param name="persistent">true: bleibt nach dem Schließen des Tabs erhalten ("Angemeldet bleiben").</param>
+    ValueTask SetTokenAsync(string token, bool persistent);
+
     ValueTask ClearAsync();
 }
