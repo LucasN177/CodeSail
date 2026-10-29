@@ -1,0 +1,53 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet publish src/CodeSail/CodeSail.csproj -c Release -o publish
+
+      # Projekt-Pages laufen unter /<repo>/ – base href anpassen, SPA-Fallback und Jekyll deaktivieren
+      - name: Prepare for GitHub Pages
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          cd publish/wwwroot
+          OLD_HASH=$(openssl dgst -sha256 -binary index.html | base64)
+          sed -i "s|<base href=\"/\" />|<base href=\"/${REPO_NAME}/\" />|" index.html
+          NEW_HASH=$(openssl dgst -sha256 -binary index.html | base64)
+          # Service Worker prüft die Integrität von index.html – Hash nachziehen, vorkomprimierte Kopien entfernen
+          sed -i "s|sha256-${OLD_HASH}|sha256-${NEW_HASH}|" service-worker-assets.js
+          rm -f index.html.br index.html.gz
+          cp index.html 404.html
+          touch .nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: publish/wwwroot
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CodeSail/CodeSail.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CodeSail.Tests/CodeSail.Tests.csproj" />
+  </Folder>
+</Solution>
