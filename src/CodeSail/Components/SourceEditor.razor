@@ -1,0 +1,141 @@
+@* Monaco-Editor mit einem Modell pro Datei, damit Undo-Verlauf und Cursor beim Tab-Wechsel erhalten bleiben. *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<StandaloneCodeEditor @ref="_editor" Id="codesail-editor" CssClass="codesail-editor"
+                      ConstructionOptions="Options" OnDidInit="OnEditorInitAsync"
+                      OnDidChangeModelContent="OnContentChanged" />
+
+@code {
+    private const int AutosaveDelayMs = 500;
+
+    private readonly Dictionary<string, TextModel> _models = [];
+    private StandaloneCodeEditor? _editor;
+    private bool _initialized;
+    private string? _shownKey;
+    private string? _pendingKey;
+    private CancellationTokenSource? _autosave;
+
+    /// <summary>Aktuell angezeigte Datei. Das Modell wird beim ersten Anzeigen aus dem Inhalt erzeugt.</summary>
+    [Parameter] public CachedFile? File { get; set; }
+
+    /// <summary>Wird nach einer Pause beim Tippen und bei Cmd+S mit dem aktuellen Inhalt aufgerufen.</summary>
+    [Parameter] public EventCallback<(string Key, string Content)> ContentChanged { get; set; }
+
+    [Parameter] public EventCallback SaveRequested { get; set; }
+
+    private StandaloneEditorConstructionOptions Options(StandaloneCodeEditor editor) => new()
+    {
+        AutomaticLayout = true,
+        Theme = "vs-dark",
+        FontSize = 14,
+        Minimap = new EditorMinimapOptions { Enabled = false },
+        ScrollBeyondLastLine = false,
+        RenderWhitespace = "selection",
+        // Größere Scrollbalken lassen sich auf dem Touchscreen besser greifen
+        Scrollbar = new EditorScrollbarOptions { VerticalScrollbarSize = 14, HorizontalScrollbarSize = 14 }
+    };
+
+    private async Task OnEditorInitAsync()
+    {
+        _initialized = true;
+        await _editor!.AddCommand((int)KeyMod.CtrlCmd | (int)KeyCode.KeyS, _ =>
+            InvokeAsync(async () =>
+            {
+                await FlushAsync();
+                await SaveRequested.InvokeAsync();
+            }), null);
+        await ShowFileAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_initialized && File?.Key != _shownKey)
+            await ShowFileAsync();
+    }
+
+    private async Task ShowFileAsync()
+    {
+        if (File is null || _editor is null)
+            return;
+
+        await FlushAsync();
+
+        if (!_models.TryGetValue(File.Key, out var model))
+        {
+            // Ohne Sprachangabe erkennt Monaco die Sprache an der Dateiendung in der URI
+            model = await Global.CreateModel(JS, File.Content, null, ModelUri(File));
+            _models[File.Key] = model;
+        }
+
+        await _editor.SetModel(model);
+        _shownKey = File.Key;
+        await _editor.Focus();
+    }
+
+    private void OnContentChanged(ModelContentChangedEvent e)
+    {
+        _pendingKey = _shownKey;
+        _autosave?.Cancel();
+        _autosave = new CancellationTokenSource();
+        var token = _autosave.Token;
+
+        _ = Task.Delay(AutosaveDelayMs, token).ContinueWith(
+            t => { if (!t.IsCanceled) InvokeAsync(FlushAsync); },
+            TaskScheduler.Default);
+    }
+
+    /// <summary>Schreibt ausstehende Änderungen sofort weg (vor Tab-Wechsel, Schließen und Cmd+S).</summary>
+    public async Task FlushAsync()
+    {
+        _autosave?.Cancel();
+        if (_pendingKey is null || !_models.TryGetValue(_pendingKey, out var model))
+            return;
+
+        var key = _pendingKey;
+        _pendingKey = null;
+        var content = await model.GetValue(null, null);
+        await ContentChanged.InvokeAsync((key, content));
+    }
+
+    /// <summary>Setzt den Inhalt einer Datei von außen, z. B. beim Verwerfen von Änderungen.</summary>
+    public async Task SetContentAsync(string key, string content)
+    {
+        if (_models.TryGetValue(key, out var model))
+        {
+            await model.SetValue(content);
+            if (_pendingKey == key)
+                _pendingKey = null;
+        }
+    }
+
+    public async Task CloseFileAsync(string key)
+    {
+        await FlushAsync();
+        if (_models.Remove(key, out var model))
+            await model.DisposeModel();
+        if (_shownKey == key)
+            _shownKey = null;
+    }
+
+    private static string ModelUri(CachedFile file)
+    {
+        var segments = new[] { file.Owner, file.Repo, file.Branch }
+            .Concat(file.Path.Split('/'))
+            .Select(Uri.EscapeDataString);
+        return "file:///" + string.Join('/', segments);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _autosave?.Cancel();
+        try
+        {
+            foreach (var model in _models.Values)
+                await model.DisposeModel();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+}

@@ -9,11 +9,10 @@ public class FileExplorerTests : MudTestContext
 {
     private static readonly string[] Files = ["src/App.cs", "src/Services/Api.cs", "README.md"];
 
-    private static readonly RepoTree Tree = new(
+    private static readonly RepoTree Tree = RepoTree.FromEntries(
         "sha",
-        TreeBuilder.Build([new("src", true), new("src/Services", true), .. Files.Select(f => new TreeEntry(f, false))]),
-        Files,
-        false);
+        [new("src", true), new("src/Services", true), .. Files.Select(f => new TreeEntry(f, false, "blob"))],
+        truncated: false);
 
     [Fact]
     public void ShowsTopLevelEntries()
@@ -37,7 +36,8 @@ public class FileExplorerTests : MudTestContext
         cut.WaitForAssertion(() => Assert.Contains("src/Services/Api.cs", cut.Markup));
         Assert.DoesNotContain("README.md", cut.Markup);
 
+        // MudListItem ruft OnClick asynchron auf, daher auf das Ergebnis warten
         cut.Find(".mud-list-item").Click();
-        Assert.Equal("src/Services/Api.cs", selected);
+        cut.WaitForAssertion(() => Assert.Equal("src/Services/Api.cs", selected));
     }
 }

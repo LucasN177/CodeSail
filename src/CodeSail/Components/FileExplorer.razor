@@ -12,7 +12,9 @@
                  SelectedValue="_selected" SelectedValueChanged="OnSelectedAsync">
         <ItemTemplate>
             <MudTreeViewItem @bind-Expanded="@context.Expanded" Items="@context.Children" Value="@context.Value"
-                             Text="@context.Text" Icon="@context.Icon" CanExpand="@context.Expandable" />
+                             Text="@context.Text" Icon="@context.Icon" CanExpand="@context.Expandable"
+                             EndIcon="@(IsDirty(context.Value) ? Icons.Material.Filled.Circle : null)"
+                             EndIconColor="Color.Warning" />
         </ItemTemplate>
     </MudTreeView>
 }
@@ -53,6 +55,14 @@ else
     [Parameter, EditorRequired] public RepoTree Tree { get; set; } = default!;
 
     [Parameter] public EventCallback<string> FileSelected { get; set; }
+
+    /// <summary>Pfade lokal geänderter Dateien; sie und ihre Ordner werden markiert.</summary>
+    [Parameter] public IReadOnlySet<string> DirtyPaths { get; set; } = new HashSet<string>();
+
+    private bool IsDirty(FileNode? node) =>
+        node is not null && (node.IsFolder
+            ? DirtyPaths.Any(p => p.StartsWith(node.Path + "/", StringComparison.Ordinal))
+            : DirtyPaths.Contains(node.Path));
 
     protected override void OnParametersSet()
     {

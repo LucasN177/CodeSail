@@ -2,7 +2,8 @@ using CodeSail.Models;
 
 namespace CodeSail.Services.GitHub;
 
-public readonly record struct TreeEntry(string Path, bool IsFolder);
+/// <param name="Sha">Blob-SHA bei Dateien, sonst null.</param>
+public readonly record struct TreeEntry(string Path, bool IsFolder, string? Sha = null);
 
 /// <summary>Baut aus der flachen Liste der Git-Trees-API eine verschachtelte Ordnerstruktur.</summary>
 public static class TreeBuilder

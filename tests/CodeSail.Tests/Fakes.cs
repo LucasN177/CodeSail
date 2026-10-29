@@ -32,7 +32,13 @@ internal sealed class FakeGitHubService : IGitHubService
     public Exception LoginError { get; set; } = new Octokit.AuthorizationException();
     public FakeTokenStore TokenStore { get; }
 
-    public FakeGitHubService(FakeTokenStore tokenStore) => TokenStore = tokenStore;
+    /// <summary>Blob-SHA → Inhalt. Ist <see cref="NetworkError"/> gesetzt, schlagen alle Abrufe fehl.</summary>
+    public Dictionary<string, byte[]> Blobs { get; } = [];
+    public List<TreeEntry> TreeEntries { get; } = [];
+    public Exception? NetworkError { get; set; }
+    public int BlobRequests { get; private set; }
+
+    public FakeGitHubService(FakeTokenStore? tokenStore = null) => TokenStore = tokenStore ?? new FakeTokenStore();
 
     public RateLimitInfo? RateLimit => null;
 
@@ -44,14 +50,76 @@ internal sealed class FakeGitHubService : IGitHubService
             : Task.FromException<string>(LoginError);
 
     public Task<IReadOnlyList<RepoSummary>> GetRepositoriesAsync() =>
-        Task.FromResult<IReadOnlyList<RepoSummary>>([]);
+        Respond<IReadOnlyList<RepoSummary>>([]);
 
     public Task<RepoSummary> GetRepositoryAsync(string owner, string name) =>
-        Task.FromResult(new RepoSummary(1, owner, name, "main", false));
+        Respond(new RepoSummary(1, owner, name, "main", false));
 
     public Task<IReadOnlyList<BranchInfo>> GetBranchesAsync(string owner, string name) =>
-        Task.FromResult<IReadOnlyList<BranchInfo>>([new BranchInfo("main", "abc")]);
+        Respond<IReadOnlyList<BranchInfo>>([new BranchInfo("main", "abc")]);
 
-    public Task<RepoTree> GetTreeAsync(string owner, string name, string commitSha) =>
-        Task.FromResult(new RepoTree(commitSha, [], [], false));
+    public Task<TreeSnapshot> GetTreeAsync(string owner, string name, string commitSha) =>
+        Respond(new TreeSnapshot("tree-" + commitSha, TreeEntries.ToList(), false));
+
+    public Task<byte[]> GetBlobAsync(string owner, string name, string blobSha)
+    {
+        BlobRequests++;
+        return Respond(Blobs[blobSha]);
+    }
+
+    private Task<T> Respond<T>(T value) =>
+        NetworkError is null ? Task.FromResult(value) : Task.FromException<T>(NetworkError);
+}
+
+internal sealed class FakeFileCache : IFileCache
+{
+    public Dictionary<string, CachedFile> Files { get; } = [];
+    public Dictionary<string, CachedTree> Trees { get; } = [];
+    public Dictionary<string, CachedRepo> Repos { get; } = [];
+
+    public Task<CachedFile?> GetFileAsync(string key) => Task.FromResult(Files.GetValueOrDefault(key));
+
+    public Task SaveFileAsync(CachedFile file)
+    {
+        Files[file.Key] = file;
+        return Task.CompletedTask;
+    }
+
+    public Task RemoveFileAsync(string key)
+    {
+        Files.Remove(key);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<CachedFile>> GetFilesAsync(string keyPrefix) =>
+        Task.FromResult<IReadOnlyList<CachedFile>>(
+            Files.Values.Where(f => f.Key.StartsWith(keyPrefix, StringComparison.Ordinal)).ToList());
+
+    public Task<CachedTree?> GetTreeAsync(string key) => Task.FromResult(Trees.GetValueOrDefault(key));
+
+    public Task SaveTreeAsync(CachedTree tree)
+    {
+        Trees[tree.Key] = tree;
+        return Task.CompletedTask;
+    }
+
+    public Task<CachedRepo?> GetRepoAsync(string key) => Task.FromResult(Repos.GetValueOrDefault(key));
+
+    public Task SaveRepoAsync(CachedRepo repo)
+    {
+        Repos[repo.Key] = repo;
+        return Task.CompletedTask;
+    }
+
+    public Task ClearAsync()
+    {
+        Files.Clear();
+        Trees.Clear();
+        Repos.Clear();
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> RequestPersistenceAsync() => Task.FromResult(true);
+
+    public Task<long?> EstimateUsageAsync() => Task.FromResult<long?>(null);
 }

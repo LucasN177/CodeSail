@@ -1,8 +1,11 @@
 @page "/repo/{Owner}/{Name}"
-@inject IGitHubService GitHub
+@inject WorkspaceService RepoData
+@inject BrowserEnvironment Browser
 @inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
 
-<PageTitle>CodeSail – @Owner/@Name</PageTitle>
+<PageTitle>CodeSail – @(ActiveFile?.Name ?? $"{Owner}/{Name}")</PageTitle>
 
 <div class="workspace">
     @if (_explorerOpen)
@@ -11,6 +14,12 @@
             <div class="d-flex align-center mb-2">
                 <MudIconButton Href="repos" Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small" aria-label="Zurück zu den Repositories" />
                 <MudText Typo="Typo.subtitle1" Class="ml-1 text-truncate" title="@($"{Owner}/{Name}")">@Name</MudText>
+                @if (_fromCache)
+                {
+                    <MudTooltip Text="GitHub ist nicht erreichbar. Angezeigt wird der zuletzt geladene Stand.">
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined" Class="ml-auto">Offline-Kopie</MudChip>
+                    </MudTooltip>
+                }
             </div>
 
             @if (_branches is not null)
@@ -44,7 +53,7 @@
                         Das Repository ist sehr groß, GitHub hat nicht alle Dateien geliefert.
                     </MudAlert>
                 }
-                <FileExplorer Tree="_tree" FileSelected="path => _selectedPath = path" />
+                <FileExplorer Tree="_tree" DirtyPaths="DirtyPaths" FileSelected="OpenFileAsync" />
             }
         </aside>
     }
@@ -53,14 +62,43 @@
         <div class="editor-toolbar">
             <MudIconButton Icon="@(_explorerOpen ? Icons.Material.Filled.MenuOpen : Icons.Material.Filled.Menu)"
                            OnClick="() => _explorerOpen = !_explorerOpen" aria-label="Explorer umschalten" />
-            <MudText Typo="Typo.body2" Class="text-truncate">@(_selectedPath ?? "Keine Datei geöffnet")</MudText>
+
+            <div class="tabs" role="tablist">
+                @foreach (var file in _openFiles)
+                {
+                    <div class="tab @(file.Key == _activeKey ? "active" : "")" role="tab" title="@file.Path"
+                         aria-selected="@(file.Key == _activeKey)" @onclick="() => _activeKey = file.Key">
+                        <span class="tab-name">@file.Name</span>
+                        @if (file.IsDirty)
+                        {
+                            <span class="tab-dirty" title="Lokal geändert, noch nicht committet">●</span>
+                        }
+                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Class="tab-close"
+                                       OnClick="() => CloseFileAsync(file)" aria-label="@($"{file.Name} schließen")" />
+                    </div>
+                }
+            </div>
+
+            @if (ActiveFile is { IsDirty: true })
+            {
+                <MudMenu Icon="@Icons.Material.Filled.MoreVert" AnchorOrigin="Origin.BottomRight"
+                         TransformOrigin="Origin.TopRight" aria-label="Dateiaktionen">
+                    <MudMenuItem Icon="@Icons.Material.Filled.Undo" OnClick="DiscardChangesAsync">Änderungen verwerfen</MudMenuItem>
+                </MudMenu>
+            }
         </div>
-        <div class="editor-placeholder">
-            <MudIcon Icon="@Icons.Material.Outlined.Code" Size="Size.Large" />
-            <MudText Class="mud-text-secondary">
-                @(_selectedPath is null ? "Wähle links eine Datei aus." : "Der Editor folgt in Phase 2.")
-            </MudText>
+
+        <div class="editor-host @(ActiveFile is null ? "hidden" : "")">
+            <SourceEditor @ref="_editor" File="ActiveFile" ContentChanged="OnContentChangedAsync" SaveRequested="OnSaveRequested" />
         </div>
+
+        @if (ActiveFile is null)
+        {
+            <div class="editor-placeholder">
+                <MudIcon Icon="@Icons.Material.Outlined.Code" Size="Size.Large" />
+                <MudText Class="mud-text-secondary">Wähle links eine Datei aus.</MudText>
+            </div>
+        }
     </section>
 </div>
 
@@ -68,15 +106,23 @@
     private IReadOnlyList<BranchInfo>? _branches;
     private BranchInfo? _branch;
     private RepoTree? _tree;
-    private string? _selectedPath;
+    private bool _fromCache;
     private string? _error;
     private bool _explorerOpen = true;
     private string? _loadedRepo;
+
+    private readonly List<CachedFile> _openFiles = [];
+    private string? _activeKey;
+    private SourceEditor? _editor;
 
     [Parameter] public string Owner { get; set; } = "";
     [Parameter] public string Name { get; set; } = "";
 
     [SupplyParameterFromQuery(Name = "branch")] public string? BranchName { get; set; }
+
+    private CachedFile? ActiveFile => _openFiles.FirstOrDefault(f => f.Key == _activeKey);
+
+    private IReadOnlySet<string> DirtyPaths => _openFiles.Where(f => f.IsDirty).Select(f => f.Path).ToHashSet();
 
     protected override async Task OnParametersSetAsync()
     {
@@ -101,14 +147,14 @@
         _branches = null;
         _branch = null;
         _tree = null;
-        _selectedPath = null;
 
-        var repo = await GitHub.GetRepositoryAsync(Owner, Name);
-        _branches = await GitHub.GetBranchesAsync(Owner, Name);
+        var loaded = await RepoData.LoadBranchesAsync(Owner, Name);
+        _fromCache = loaded.FromCache;
+        _branches = loaded.Value.Branches;
         if (_branches.Count == 0)
             throw new InvalidOperationException("Das Repository ist leer.");
 
-        _branch = _branches.FirstOrDefault(b => b.Name == repo.DefaultBranch) ?? _branches[0];
+        _branch = _branches.FirstOrDefault(b => b.Name == loaded.Value.DefaultBranch) ?? _branches[0];
         _loadedRepo = $"{Owner}/{Name}";
     }
 
@@ -117,10 +163,97 @@
         _error = null;
         _branch = branch;
         _tree = null;
-        _selectedPath = null;
+        await CloseAllFilesAsync();
         StateHasChanged();
 
-        _tree = await GitHub.GetTreeAsync(Owner, Name, branch.CommitSha);
+        var loaded = await RepoData.LoadTreeAsync(Owner, Name, branch);
+        _tree = loaded.Value;
+        _fromCache |= loaded.FromCache;
+
+        // Lokal geänderte Dateien wieder öffnen, damit nach einem Neustart nichts übersehen wird
+        foreach (var file in await RepoData.GetDirtyFilesAsync(Owner, Name, branch.Name))
+            _openFiles.Add(file);
+        _activeKey = _openFiles.LastOrDefault()?.Key;
+    }
+
+    private async Task OpenFileAsync(string path)
+    {
+        if (_branch is null || _tree is null)
+            return;
+
+        var open = _openFiles.FirstOrDefault(f => f.Path == path);
+        if (open is null)
+        {
+            try
+            {
+                open = await RepoData.OpenFileAsync(Owner, Name, _branch.Name, path, _tree.BlobShas.GetValueOrDefault(path));
+                _openFiles.Add(open);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add(GitHubErrors.Describe(ex), Severity.Error);
+                return;
+            }
+        }
+
+        _activeKey = open.Key;
+        if (await Browser.IsNarrowAsync())
+            _explorerOpen = false;
+    }
+
+    private async Task OnContentChangedAsync((string Key, string Content) change)
+    {
+        var index = _openFiles.FindIndex(f => f.Key == change.Key);
+        if (index < 0)
+            return;
+
+        try
+        {
+            _openFiles[index] = await RepoData.SaveContentAsync(_openFiles[index], change.Content);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Lokales Speichern fehlgeschlagen: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void OnSaveRequested() =>
+        Snackbar.Add("Lokal gespeichert", Severity.Success, o => o.VisibleStateDuration = 1500);
+
+    private async Task CloseFileAsync(CachedFile file)
+    {
+        // Änderungen bleiben im Cache erhalten; der Tab öffnet sich beim nächsten Laden wieder
+        if (_editor is not null)
+            await _editor.CloseFileAsync(file.Key);
+
+        var index = _openFiles.FindIndex(f => f.Key == file.Key);
+        _openFiles.RemoveAt(index);
+        if (_activeKey == file.Key)
+            _activeKey = _openFiles.Count == 0 ? null : _openFiles[Math.Min(index, _openFiles.Count - 1)].Key;
+    }
+
+    private async Task CloseAllFilesAsync()
+    {
+        foreach (var file in _openFiles.ToList())
+            await CloseFileAsync(file);
+    }
+
+    private async Task DiscardChangesAsync()
+    {
+        if (ActiveFile is not { } file)
+            return;
+
+        var confirmed = await Dialogs.ShowMessageBoxAsync(
+            "Änderungen verwerfen?",
+            $"Alle lokalen Änderungen an {file.Name} gehen verloren.",
+            yesText: "Verwerfen", cancelText: "Abbrechen");
+        if (confirmed != true)
+            return;
+
+        var index = _openFiles.FindIndex(f => f.Key == file.Key);
+        _openFiles[index] = await RepoData.DiscardChangesAsync(file);
+        if (_editor is not null)
+            await _editor.SetContentAsync(file.Key, file.OriginalContent);
     }
 
     private void OnBranchChanged(BranchInfo branch) =>

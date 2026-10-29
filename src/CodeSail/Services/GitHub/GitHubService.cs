@@ -48,7 +48,7 @@ public sealed class GitHubService(ITokenStore tokenStore) : IGitHubService
         return branches.Select(b => new BranchInfo(b.Name, b.Commit.Sha)).ToList();
     }
 
-    public async Task<RepoTree> GetTreeAsync(string owner, string name, string commitSha)
+    public async Task<TreeSnapshot> GetTreeAsync(string owner, string name, string commitSha)
     {
         var client = await GetClientAsync();
         var tree = await client.Git.Tree.GetRecursive(owner, name, commitSha);
@@ -57,11 +57,23 @@ public sealed class GitHubService(ITokenStore tokenStore) : IGitHubService
         // Submodule (TreeType.Commit) können nicht geöffnet werden und werden ausgelassen
         var entries = tree.Tree
             .Where(t => t.Type.Value is TreeType.Blob or TreeType.Tree)
-            .Select(t => new TreeEntry(t.Path, t.Type.Value == TreeType.Tree))
+            .Select(t => t.Type.Value == TreeType.Tree
+                ? new TreeEntry(t.Path, IsFolder: true)
+                : new TreeEntry(t.Path, IsFolder: false, t.Sha))
             .ToList();
 
-        var files = entries.Where(e => !e.IsFolder).Select(e => e.Path).ToList();
-        return new RepoTree(tree.Sha, TreeBuilder.Build(entries), files, tree.Truncated);
+        return new TreeSnapshot(tree.Sha, entries, tree.Truncated);
+    }
+
+    public async Task<byte[]> GetBlobAsync(string owner, string name, string blobSha)
+    {
+        var client = await GetClientAsync();
+        var blob = await client.Git.Blob.Get(owner, name, blobSha);
+        UpdateRateLimit(client);
+
+        return blob.Encoding.Value == EncodingType.Base64
+            ? Convert.FromBase64String(blob.Content)
+            : System.Text.Encoding.UTF8.GetBytes(blob.Content);
     }
 
     private async Task<GitHubClient> GetClientAsync()

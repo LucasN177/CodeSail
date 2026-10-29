@@ -19,5 +19,10 @@ public interface IGitHubService
     Task<IReadOnlyList<BranchInfo>> GetBranchesAsync(string owner, string name);
 
     /// <summary>Lädt den kompletten Datei-Baum eines Commits mit einer einzigen Anfrage.</summary>
-    Task<RepoTree> GetTreeAsync(string owner, string name, string commitSha);
+    Task<TreeSnapshot> GetTreeAsync(string owner, string name, string commitSha);
+
+    /// <summary>Lädt den Rohinhalt einer Datei über ihre Blob-SHA (auch Dateien über 1 MB).</summary>
+    Task<byte[]> GetBlobAsync(string owner, string name, string blobSha);
 }
+
+public sealed record TreeSnapshot(string Sha, List<TreeEntry> Entries, bool Truncated);

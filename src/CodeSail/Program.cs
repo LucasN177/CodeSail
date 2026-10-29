@@ -15,6 +15,9 @@ builder.Services.AddMudServices();
 
 builder.Services.AddScoped<ITokenStore, BrowserTokenStore>();
 builder.Services.AddScoped<IGitHubService, GitHubService>();
+builder.Services.AddScoped<IFileCache, IndexedDbFileCache>();
+builder.Services.AddScoped<BrowserEnvironment>();
+builder.Services.AddScoped<WorkspaceService>();
 builder.Services.AddScoped<AuthState>();
 
 await builder.Build().RunAsync();

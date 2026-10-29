@@ -2,6 +2,10 @@
 @implements IDisposable
 @inject AuthState Auth
 @inject IGitHubService GitHub
+@inject BrowserEnvironment Browser
+@inject WorkspaceService Workspace
+@inject IFileCache Cache
+@inject IDialogService Dialogs
 @inject NavigationManager Nav
 
 <MudThemeProvider IsDarkMode="true" />
@@ -15,6 +19,12 @@
             <MudText Typo="Typo.h6">⚓️ CodeSail</MudText>
         </MudLink>
         <MudSpacer />
+        @if (!Browser.IsOnline)
+        {
+            <MudTooltip Text="Keine Verbindung. Änderungen werden lokal gespeichert.">
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Icon="@Icons.Material.Filled.CloudOff">Offline</MudChip>
+            </MudTooltip>
+        }
         @if (Auth.IsAuthenticated)
         {
             @if (GitHub.RateLimit is { } rate)
@@ -26,9 +36,10 @@
                     </MudChip>
                 </MudTooltip>
             }
-            <MudMenu Icon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit"
+            <MudMenu Icon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit" OpenChanged="OnMenuOpenChanged"
                      AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" aria-label="Konto">
                 <MudMenuItem Icon="@Icons.Custom.Brands.GitHub" Disabled="true">@Auth.Login</MudMenuItem>
+                <MudMenuItem Icon="@Icons.Material.Filled.Storage" Disabled="true">Offline-Speicher: @FormatUsage()</MudMenuItem>
                 <MudMenuItem Icon="@Icons.Material.Filled.Logout" OnClick="LogoutAsync">Abmelden</MudMenuItem>
             </MudMenu>
         }
@@ -47,11 +58,19 @@
 </MudLayout>
 
 @code {
+    private long? _usage;
+
     protected override async Task OnInitializedAsync()
     {
         Auth.Changed += OnStateChanged;
         GitHub.RateLimitChanged += OnStateChanged;
+        Browser.ConnectivityChanged += OnStateChanged;
+
+        await Browser.InitializeAsync();
         await Auth.InitializeAsync();
+
+        // Ohne diese Bitte darf Safari den Offline-Cache nach einigen Tagen ohne Nutzung löschen
+        _ = Cache.RequestPersistenceAsync();
     }
 
     protected override void OnParametersSet()
@@ -67,8 +86,31 @@
         return path is "" or "not-found";
     }
 
+    private async Task OnMenuOpenChanged(bool open)
+    {
+        if (open)
+            _usage = await Cache.EstimateUsageAsync();
+    }
+
+    private string FormatUsage() => _usage switch
+    {
+        null => "unbekannt",
+        < 1024 * 1024 => $"{_usage / 1024.0:0.#} KB",
+        _ => $"{_usage / (1024.0 * 1024):0.#} MB"
+    };
+
     private async Task LogoutAsync()
     {
+        var dirty = await Workspace.CountDirtyFilesAsync();
+        var message = dirty > 0
+            ? $"{dirty} Datei(en) mit lokalen, noch nicht committeten Änderungen gehen dabei verloren."
+            : "Token und Offline-Kopien werden von diesem Gerät gelöscht.";
+
+        var confirmed = await Dialogs.ShowMessageBoxAsync("Abmelden?", message, yesText: "Abmelden", cancelText: "Abbrechen");
+        if (confirmed != true)
+            return;
+
+        await Workspace.ClearCacheAsync();
         await Auth.LogoutAsync();
         Nav.NavigateTo("", replace: true);
     }
@@ -86,5 +128,6 @@
     {
         Auth.Changed -= OnStateChanged;
         GitHub.RateLimitChanged -= OnStateChanged;
+        Browser.ConnectivityChanged -= OnStateChanged;
     }
 }

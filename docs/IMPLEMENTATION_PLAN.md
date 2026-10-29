@@ -68,7 +68,11 @@ Umgesetzt in `Pages/Home.razor` (Login), `Pages/Repos.razor` (Repo-Auswahl), `Pa
 
 *Fertig, wenn:* Nutzer meldet sich auf dem iPad an, wählt ein Repo und sieht den Dateibaum.
 
-## Phase 2 – Monaco-Editor & Offline-Cache
+## Phase 2 – Monaco-Editor & Offline-Cache ✅ (umgesetzt, Test mit echtem Token auf dem iPad offen)
+
+Umgesetzt in `Components/SourceEditor.razor` (ein Monaco-Modell pro Datei, Autosave nach 500 ms, Cmd+S), `Pages/Workspace.razor` (Tabs, Dirty-Markierung, Änderungen verwerfen, geänderte Dateien öffnen sich wieder), `Services/WorkspaceService.cs` (Laden mit Offline-Fallback; lokale Änderungen haben Vorrang), `Services/Storage/IndexedDbFileCache.cs` + `wwwroot/js/codesail.js` (Stores `files`, `trees`, `repos`), `Services/BrowserEnvironment.cs` (Online-Status). Dateien werden über die Blob-API geladen (auch > 1 MB), Binärdateien abgelehnt. Der Service Worker leitet seine Basis jetzt aus dem eigenen Pfad ab, damit der Offline-Cache auch unter `/CodeSail/` greift.
+
+Abweichungen/offen: Schriftgröße per Pinch und Cmd+P (Schnellsuche) fehlen noch. Monaco erkennt die Sprache selbst über die Dateiendung in der Modell-URI, eine eigene Zuordnung ist nicht nötig.
 
 1. **Editor-Komponente** (`StandaloneCodeEditor`): Sprache aus Dateiendung ableiten, Theme `vs-dark`, Schriftgröße per Pinch/Setting, Touch-taugliche Optionen (`minimap` aus, größere Scrollbars).
 2. **Tabs** für mehrere geöffnete Dateien, Dirty-Markierung.
