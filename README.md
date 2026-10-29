@@ -27,8 +27,8 @@ It connects straight to your **GitHub** repositories through the GitHub REST API
 | **Changes view** with side-by-side diff (Monaco diff editor) | ✅ |
 | **Commit & push** several files as one commit, with conflict detection | ✅ |
 | **Branches**: create, switch, commit to a new branch and open a pull request | ✅ |
-| Preview for Markdown and static HTML | 💡 planned |
-| In-browser C# compilation (Roslyn) | 🧪 Phase 4 |
+| **Live preview** for Markdown and static HTML (side by side or full, sandboxed) | ✅ |
+| Run JavaScript/TypeScript, compile and run C# in the browser | 🧪 Phase 4 (planned) |
 
 ### Workflow
 
@@ -36,8 +36,9 @@ It connects straight to your **GitHub** repositories through the GitHub REST API
 2. Edit. Changes are written to the device's IndexedDB about half a second after you stop typing. **Cmd + S** saves immediately.
    Edited files show a **●** in their tab and in the explorer, and reopen automatically after the app was closed.
 3. New files: **Files → New file** (use `/` for folders). Rename, move or delete via the **⋮** menu of the open file.
-4. Switch to the **Changes** tab in the sidebar. It lists every changed (**M**), added (**A**) and deleted (**D**) file. Tap one to see a diff, or use ↶ to discard it.
-5. Enter a commit message and tap **Commit & push**. All changes become a single commit.
+4. For Markdown and HTML files, tap the 👁 icon for a live preview. In landscape it opens next to the code (⛶ shows only the preview); in portrait it toggles between code and preview. Images, stylesheets and scripts from the repository are embedded, including your uncommitted edits.
+5. Switch to the **Changes** tab in the sidebar. It lists every changed (**M**), added (**A**) and deleted (**D**) file. Tap one to see a diff, or use ↶ to discard it.
+6. Enter a commit message and tap **Commit & push**. All changes become a single commit.
    Tick **Commit to a new branch** to create a branch instead, and optionally open a pull request against the current branch.
 
 **Conflicts:** Before pushing, CodeSail checks whether any of your files changed on GitHub since you opened them. Changes to *other* files are fine; your commit simply goes on top. If the same file changed, you choose: commit your version anyway (it replaces the GitHub version) or cancel, discard your change and redo it on the new version. Nothing is merged automatically.
@@ -61,6 +62,7 @@ All dependencies are free and open source.
 - **Framework:** Blazor WebAssembly (.NET 10), PWA template
 - **UI components:** [MudBlazor](https://mudblazor.com/) (MIT)
 - **Editor:** Monaco Editor via [BlazorMonaco](https://github.com/serdarciplak/BlazorMonaco) (MIT)
+- **Markdown:** [Markdig](https://github.com/xoofx/markdig) (BSD-2-Clause)
 - **GitHub client:** [Octokit.NET](https://github.com/octokit/octokit.net) (MIT)
 - **Local storage:** IndexedDB through a small JS module (`wwwroot/js/codesail.js`), with no extra library
 - **Tests:** xUnit + [bUnit](https://bunit.dev/)
@@ -95,12 +97,13 @@ dotnet test
 ### Project structure
 ```
 src/CodeSail/
-  Components/        FileExplorer, SourceEditor + DiffView (Monaco), ChangesPanel, dialogs
+  Components/        FileExplorer, SourceEditor + DiffView (Monaco), PreviewPane, ChangesPanel, dialogs
   Layout/            App shell: app bar, auth guard, offline/rate-limit indicators
   Pages/             Home (sign-in), Repos, Workspace
   Services/          AuthState, WorkspaceService (loading, file operations), CommitService, BrowserEnvironment
   Services/GitHub/   GitHub API (Octokit + direct Git Data calls), tree builder, error messages
   Services/Storage/  Token store, IndexedDB file cache
+  Services/Preview/  Markdown/HTML preview (rendering, embedding repo files)
   wwwroot/js/        IndexedDB + browser interop module
 tests/CodeSail.Tests/
 tools/render-icons.cs  Regenerates the PNG icons from the SVG logo (dotnet run tools/render-icons.cs)
@@ -114,6 +117,7 @@ docs/IMPLEMENTATION_PLAN.md
 - Your token never leaves the device except in requests to `api.github.com`.
 - By default it is kept in `sessionStorage` and removed when the tab closes. With "stay signed in" it goes to `localStorage`.
 - There is no server and no telemetry.
+- The preview runs repository HTML and scripts in a sandboxed iframe without same-origin access, so they cannot read your token or the offline cache.
 
 The repository itself needs **no secrets**. See [SECRETS.md](SECRETS.md).
 
@@ -135,7 +139,8 @@ Open the live URL in **Safari on your iPad**, tap **Share → Add to Home Screen
 - [x] **Phase 1:** GitHub authentication & repository tree explorer
 - [x] **Phase 2:** Monaco editor integration with offline caching (IndexedDB)
 - [x] **Phase 3:** Commit & branch management workflow
-- [ ] **Phase 4:** In-browser compilation experiments with Roslyn (`Microsoft.CodeAnalysis`) *(next, after a Markdown/HTML preview)*
+- [x] **Phase 3b:** Live preview for Markdown and HTML
+- [ ] **Phase 4:** Online compiler: run JavaScript/TypeScript (4A), compile and run C# with Roslyn in a Web Worker (4B) *(next, see the plan)*
 
 Details: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)
 

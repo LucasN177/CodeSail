@@ -64,9 +64,31 @@
     font-size: 0.75rem;
 }
 
-.editor-host {
+.editor-row {
     flex: 1 1 auto;
+    display: flex;
     min-height: 0;
+}
+
+.editor-row.hidden {
+    display: none;
+}
+
+.editor-host {
+    flex: 1 1 0;
+    min-height: 0;
+    min-width: 0;
+}
+
+/* Vorschau rechts neben dem Code, gleich breit; "full" blendet den Code aus */
+.preview-host {
+    flex: 1 1 0;
+    min-width: 0;
+    border-left: 1px solid var(--mud-palette-lines-default);
+}
+
+.preview-host.full {
+    border-left: 0;
 }
 
 .editor-host.hidden {

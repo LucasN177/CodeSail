@@ -93,6 +93,22 @@ export function applyUpdate() {
     window.codesailPwa?.applyUpdate();
 }
 
+// Vorschau: Der iframe meldet seine Scrollposition; nach jedem Neuaufbau (neues srcdoc)
+// wird sie zurückgeschickt, damit die Ansicht beim Tippen nicht nach oben springt.
+export function attachPreview(iframe) {
+    if (iframe.codesailScroll !== undefined) return;
+    iframe.codesailScroll = 0;
+    addEventListener("message", e => {
+        if (e.source !== iframe.contentWindow || !e.data) return;
+        if (typeof e.data.codesailScroll === "number") iframe.codesailScroll = e.data.codesailScroll;
+        if (e.data.codesailReady) iframe.contentWindow.postMessage({ codesailScroll: iframe.codesailScroll }, "*");
+    });
+}
+
+export function resetPreviewScroll(iframe) {
+    iframe.codesailScroll = 0;
+}
+
 // Schmale Ansicht (iPad hochkant): Explorer liegt dann über dem Editor
 export function isNarrow() {
     return window.matchMedia("(max-width: 820px)").matches;

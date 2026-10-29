@@ -1,0 +1,80 @@
+@* Live-Vorschau für Markdown und HTML in einem abgeschotteten iframe (ohne allow-same-origin). *@
+@implements IAsyncDisposable
+@inject PreviewService Previews
+@inject IJSRuntime JS
+
+<div class="preview-pane">
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Warning" Dense="true" Square="true">@_error</MudAlert>
+    }
+    <iframe @ref="_frame" class="preview-frame" title="@($"Vorschau von {File?.Name}")"
+            sandbox="@Sandbox" srcdoc="@_document" referrerpolicy="no-referrer"></iframe>
+</div>
+
+@code {
+    private ElementReference _frame;
+    private IJSObjectReference? _module;
+    private string? _document;
+    private string? _error;
+    private (string Key, string Content)? _rendered;
+    private int _version;
+
+    [Parameter, EditorRequired] public CachedFile? File { get; set; }
+    [Parameter, EditorRequired] public RepoTree? Tree { get; set; }
+
+    // Markdown braucht nur das Scroll-Skript; eigene HTML-Seiten dürfen zusätzlich Formulare und Dialoge nutzen.
+    // allow-same-origin fehlt bewusst: so kommt die Seite nicht an Token und Offline-Cache der App.
+    private string Sandbox => PreviewBuilder.KindOf(File?.Path ?? "") == PreviewKind.Html
+        ? "allow-scripts allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox"
+        : "allow-scripts allow-popups allow-popups-to-escape-sandbox";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (File is null || Tree is null || _rendered == (File.Key, File.Content))
+            return;
+
+        var fileChanged = _rendered?.Key != File.Key;
+        _rendered = (File.Key, File.Content);
+        var version = ++_version;
+
+        if (fileChanged && _module is not null)
+            await _module.InvokeVoidAsync("resetPreviewScroll", _frame);
+
+        try
+        {
+            var document = await Previews.BuildAsync(File, Tree);
+            // Nur das Ergebnis des jüngsten Aufrufs anzeigen, falls beim Tippen mehrere überlappen
+            if (version != _version)
+                return;
+            _document = document;
+            _error = null;
+        }
+        catch (Exception ex)
+        {
+            if (version == _version)
+                _error = $"Vorschau nicht möglich: {ex.Message}";
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+        _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/codesail.js");
+        await _module.InvokeVoidAsync("attachPreview", _frame);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is null)
+            return;
+        try
+        {
+            await _module.DisposeAsync();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+}

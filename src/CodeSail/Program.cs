@@ -4,6 +4,7 @@ using MudBlazor.Services;
 using CodeSail;
 using CodeSail.Services;
 using CodeSail.Services.GitHub;
+using CodeSail.Services.Preview;
 using CodeSail.Services.Storage;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -20,6 +21,7 @@ builder.Services.AddScoped<IFileCache, IndexedDbFileCache>();
 builder.Services.AddScoped<BrowserEnvironment>();
 builder.Services.AddScoped<WorkspaceService>();
 builder.Services.AddScoped<CommitService>();
+builder.Services.AddScoped<PreviewService>();
 builder.Services.AddScoped<AuthState>();
 
 await builder.Build().RunAsync();

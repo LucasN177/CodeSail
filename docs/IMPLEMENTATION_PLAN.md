@@ -17,6 +17,10 @@ Stand: 29.10.2026 · Ziel: rein clientseitige Blazor-WASM-PWA als Code-Editor f�
 | Editor | BlazorMonaco (Monaco Editor) | MIT |
 | GitHub-API | Octokit.NET | MIT |
 | Lokaler Speicher | IndexedDB über eigenes, kleines JS-Interop-Modul (kein Paket nötig) | – |
+| Markdown-Vorschau | Markdig | BSD-2-Clause |
+| Icons erzeugen (nur Werkzeug, nicht in der App) | Svg.Skia in `tools/render-icons.cs` | MIT |
+| *Geplant (Phase 4):* C#-Compiler | Microsoft.CodeAnalysis.CSharp (Roslyn) | MIT |
+| *Geplant (Phase 4):* Referenz-Assemblies | Microsoft.NETCore.App.Ref (NuGet) | MIT |
 | Tests | xUnit, bUnit, coverlet | Apache 2.0 / MIT |
 | CI/CD | GitHub Actions | gratis für öffentliche Repos (privat: 2.000 Min./Monat) |
 | Hosting | GitHub Pages | gratis für öffentliche Repos |
@@ -30,14 +34,18 @@ Stand: 29.10.2026 · Ziel: rein clientseitige Blazor-WASM-PWA als Code-Editor f�
 CodeSail.slnx
 global.json                      .NET-SDK 10 festgelegt
 src/CodeSail/                    Blazor-WASM-PWA
-  Layout/MainLayout.razor        App-Shell (AppBar, Explorer-Drawer, Editor-Fläche)
-  Pages/                         Routen
-  Components/                    (Phase 1+) RepoExplorer, EditorTabs, CommitDialog …
-  Services/GitHub/               IGitHubService → Octokit
-  Services/Storage/              ITokenStore, (Phase 2) IFileCache → IndexedDB
-  Models/                        schlanke Records (RepoSummary, …)
-  wwwroot/js/                    (Phase 2) indexedDb.js
+  Layout/MainLayout.razor        App-Shell (AppBar, Anmeldeschutz, Offline-/Update-Hinweise)
+  Pages/                         Home (Login), Repos, Workspace
+  Components/                    FileExplorer, SourceEditor, DiffView, PreviewPane, ChangesPanel, Dialoge
+  Services/                      AuthState, WorkspaceService, CommitService, BrowserEnvironment
+  Services/GitHub/               GitHub-API (Octokit + direkte Git-Data-Aufrufe)
+  Services/Storage/              Token-Speicher, IndexedDB-Cache
+  Services/Preview/              Markdown-/HTML-Vorschau
+  Models/                        schlanke Records (RepoSummary, CachedFile, …)
+  wwwroot/js/                    codesail.js (IndexedDB, Vorschau, Online-Status), pwa.js (Service Worker, Updates)
+src/CodeSail.Compiler/           (Phase 4, geplant) Roslyn-Anbindung, lazy geladen
 tests/CodeSail.Tests/            xUnit + bUnit
+tools/render-icons.cs            erzeugt die PNG-Icons aus dem SVG-Logo
 .github/workflows/               ci.yml, deploy.yml
 docs/                            dieser Plan
 SECRETS.md                       benötigte Repo-Secrets
@@ -104,12 +112,128 @@ Abweichungen: Eine eigene Offline-Warteschlange ist nicht nötig, da lokale Änd
 
 *Fertig, wenn:* Mehrere Dateien bearbeitet, als ein Commit gepusht, auf GitHub sichtbar.
 
-## Phase 4 – Experiment: Kompilieren im Browser (Roslyn)
+## Phase 3b – Vorschau für Markdown und HTML ✅ (umgesetzt)
 
-1. Machbarkeitsstudie in eigenem Branch: `Microsoft.CodeAnalysis.CSharp` (MIT) lazy laden (`<BlazorWebAssemblyLazyLoad>`), da es mehrere MB groß ist.
-2. Referenz-Assemblies aus dem Publish-Output laden, einfache Konsolenprogramme kompilieren und ausführen.
-3. Diagnosen als Monaco-Marker anzeigen.
-4. Bewertung: Ladezeit und Speicherbedarf auf dem iPad; nur weiterverfolgen, wenn es praktikabel ist.
+Umgesetzt in `Services/Preview/PreviewBuilder.cs` (Markdown → HTML mit Markdig, Pfadauflösung, Einbetten von Repo-Dateien), `Services/Preview/PreviewService.cs` (lädt Bilder/CSS/JS aus dem lokalen Cache bzw. per Blob-API, Blobs pro Sitzung zwischengespeichert) und `Components/PreviewPane.razor`.
+
+- **Bedienung:** Augen-Symbol in der Editor-Leiste bei `.md`/`.markdown`/`.html`/`.htm`. Querformat: Vorschau rechts neben dem Code, per Symbol auch „nur Vorschau“. Hochformat: Umschalten zwischen Code und Vorschau. Aktualisiert sich beim Tippen (nach dem Autosave, ~0,5 s); die Scrollposition bleibt erhalten.
+- **Sicherheit:** Die Vorschau läuft in einem iframe mit `sandbox` **ohne** `allow-same-origin`. Skripte aus dem Repo laufen, kommen aber nicht an Token, `localStorage` oder IndexedDB der App (im Browser geprüft). Deshalb lädt der iframe keine Repo-Dateien selbst: Stylesheets und Skripte werden eingebettet, Bilder als `data:`-URL eingesetzt.
+- **Lokale Änderungen zuerst:** Ein noch nicht committetes Stylesheet erscheint sofort in der HTML-Vorschau.
+- **Grenzen:** `url(...)` innerhalb von CSS, `import` in JS-Modulen und Links auf andere Repo-Seiten werden nicht aufgelöst. Projekte mit Build-Schritt (React/Vite usw.) lassen sich nicht in der Vorschau anzeigen. Offline fehlen Bilder, die noch nie geladen wurden.
+
+## Phase 4 – Online-Compiler (geplant)
+
+### Ziel und Umfang
+
+CodeSail soll Code direkt auf dem iPad **übersetzen, Fehler anzeigen und ausführen**, ohne Server und auch offline. Zwei Stufen, weil sie sehr unterschiedlich aufwendig sind:
+
+| Stufe | Sprache | Aufwand | Kern |
+|---|---|---|---|
+| **4A** | JavaScript, TypeScript | klein | Ausführen in einer abgeschotteten Sandbox wie bei der Vorschau; TypeScript übersetzt der Sprachdienst, der in Monaco schon steckt |
+| **4B** | C# (.NET-Konsolenprogramme) | groß | Roslyn im Browser, Referenz-Assemblies, Ausführung in einer eigenen .NET-Laufzeit im Web Worker |
+
+**Nicht** im Umfang: Web-Frameworks mit Build-Schritt (React/Vite, ASP.NET), Debugger mit Haltepunkten, beliebige NuGet-Pakete in der ersten Version, andere Sprachen. Python per Pyodide (MPL-2.0, ~10 MB) wäre ein späteres, eigenes Thema.
+
+### Grundsatzentscheidungen
+
+| Thema | Entscheidung | Begründung |
+|---|---|---|
+| Wo wird kompiliert? | Im Browser, kein Server | Leitplanke „kein Backend“; funktioniert offline |
+| C#-Compiler | Roslyn (`Microsoft.CodeAnalysis.CSharp`, MIT) | Der echte C#-Compiler, läuft unter WebAssembly, liefert Diagnosen mit Zeile/Spalte |
+| Laden von Roslyn | Eigenes Projekt `src/CodeSail.Compiler`, per `BlazorWebAssemblyLazyLoad` erst bei Bedarf | Mehrere MB, die sonst jeden App-Start verlangsamen |
+| Referenz-Assemblies | Aus dem NuGet-Paket `Microsoft.NETCore.App.Ref` beim Build nach `wwwroot/refs/` kopieren und bei Bedarf laden | Die Laufzeit-Assemblies im `_framework`-Ordner liegen im Webcil-Format vor, Roslyn braucht echte PE-Metadaten |
+| Ausführung C# | Kompiliertes Assembly in einer **zweiten .NET-Laufzeit im Web Worker** laden und starten | Hält die Oberfläche flüssig; Endlosschleifen lassen sich durch Beenden des Workers abbrechen, im UI-Thread ginge das nicht |
+| Ausführung JS/TS | Abgeschotteter iframe ohne `allow-same-origin` (wie die Vorschau), `console.*` per `postMessage` an die App | Gleiches, bereits geprüftes Sicherheitsmodell |
+| Offline | Roslyn und Referenzen nach dem ersten Laden im Cache des Service Workers | Die App funktioniert offline weiter; erster Download nur, wenn der Compiler genutzt wird |
+| Multithreading in WASM | Nicht verwenden | Braucht COOP/COEP-Header (Cross-Origin-Isolation); GitHub Pages kann keine Header setzen |
+
+### Architektur (C#)
+
+```
+Editor (Monaco)            Seitenleiste „Ausführen“             Web Worker (eigene .NET-Laufzeit)
+  │ Cmd+Enter                  │                                   │
+  ▼                            ▼                                   │
+ProjectDiscovery ──► CompileService (Roslyn, lazy) ──► Assembly-Bytes ──► Runner: Assembly.Load, Main()
+  .csproj finden,        Diagnosen ──► Monaco-Marker                     Console.Out/Err ──► Ausgabe-Panel
+  .cs-Dateien sammeln    (Global.SetModelMarkers)                        Console.In ◄── Eingabefeld
+                                                                         Abbrechen = Worker beenden
+```
+
+Kompiliert wird zunächst im Haupt-Thread, weil Roslyn nur bei Bedarf läuft und den Thread nur kurz belegt. Falls das auf dem iPad zu träge ist, kommt auch die Übersetzung in den Worker (siehe 4.6).
+
+### Meilensteine
+
+**4.0 Spike: Machbarkeit und Messwerte** (eigener Branch, wird wieder verworfen)
+- Roslyn per Lazy Load in die App holen, „Hello World“ aus einem String kompilieren, mit `Assembly.Load(byte[])` laden und ausführen.
+- Mindestens `System.Runtime`, `System.Console`, `System.Linq`, `System.Collections` als Referenz-Assemblies laden.
+- **Messen** auf echtem iPad (Safari) und Desktop-Chrome: Downloadgröße (komprimiert), erste und wiederholte Übersetzungszeit, Speicherbedarf.
+- **Prüfen:** Läuft eine zweite .NET-Laufzeit im Web Worker? (eigenes `dotnet.js` im Worker, oder kostenlose Bibliotheken wie SpawnDev.BlazorJS.WebWorkers bzw. BlazorWorker, beide MIT). Gibt es dafür in .NET 10 inzwischen offizielle Vorlagen?
+- *Weiter, wenn:* Hello World läuft auf dem iPad, die erste Übersetzung braucht < 10 s, eine wiederholte < 2 s. Sonst die Stufe 4B neu bewerten.
+
+**4.1 JavaScript/TypeScript ausführen (Stufe 4A)**
+- „Ausführen“ für `.js`, `.mjs`, `.ts`: Code im abgeschotteten iframe starten. `console.log/warn/error` und nicht abgefangene Fehler gehen per `postMessage` in ein Ausgabe-Panel.
+- TypeScript: Übersetzung über den TypeScript-Worker von Monaco (`monaco.languages.typescript.getTypeScriptWorker` → `getEmitOutput`), keine neue Abhängigkeit.
+- Abbruch: iframe entfernen. Zeitlimit-Hinweis bei langen Läufen.
+- *Fertig, wenn:* Ein TS-Programm mit `console.log` läuft offline auf dem iPad und zeigt die Ausgabe, und ein Fehler erscheint mit Zeilenangabe.
+
+**4.2 Compiler-Projekt und Referenz-Assemblies**
+- `src/CodeSail.Compiler` (Klassenbibliothek): `ICompileService` mit `CompileAsync(CompileRequest) → CompileResult(bytes, diagnostics)`. Ohne Abhängigkeit zu Blazor, damit es sich normal testen lässt.
+- MSBuild-Target: Referenz-Assemblies aus `Microsoft.NETCore.App.Ref` (passend zum TargetFramework) nach `wwwroot/refs/net10.0/` kopieren, plus `refs/index.json` mit Liste und Größen.
+- Lazy Load: `CodeSail.Compiler`, `Microsoft.CodeAnalysis`, `Microsoft.CodeAnalysis.CSharp` über `LazyAssemblyLoader`. Referenzen werden per `HttpClient` geladen und pro Sitzung im Speicher gehalten.
+- Service Worker: diese Dateien **nicht** beim Installieren vorab laden (Ausschlussmuster), sondern beim ersten Gebrauch in einen eigenen Cache legen. So belastet der Compiler niemanden, der ihn nicht nutzt.
+
+**4.3 Projekt erkennen**
+- Zur offenen `.cs`-Datei die nächste `.csproj` darüber suchen (Dateibaum plus lokale Änderungen).
+- Aus der `.csproj` lesen: `TargetFramework`, `OutputType`, `LangVersion`, `Nullable`, `ImplicitUsings`, `AllowUnsafeBlocks`, `RootNamespace`. Alle `.cs`-Dateien darunter einsammeln, ohne `bin/`, `obj/` und Unterprojekte.
+- Implizite `global using`s wie das .NET SDK erzeugen.
+- Ohne `.csproj`: die einzelne Datei als Konsolenprogramm mit Top-Level-Statements behandeln.
+- `PackageReference`s erkennen und klar melden, dass sie (noch) nicht unterstützt werden.
+- *Testbar* mit normalen Unit-Tests (reine Logik auf `RepoTree` und `CachedFile`).
+
+**4.4 Übersetzen und Fehler anzeigen**
+- Dateiinhalte aus dem Editor-Cache (inklusive nicht gespeicherter Änderungen) an den `CompileService`.
+- Diagnosen als Monaco-Marker (`Global.SetModelMarkers`, Fehler rot, Warnungen gelb) in allen offenen Dateien. Liste „Probleme“ im Ausgabe-Panel; Tippen springt zur Stelle.
+- Optional: während des Tippens im Hintergrund nur die Diagnosen prüfen (entprellt, ~1 s), ohne auszuführen.
+- *Fertig, wenn:* Ein Tippfehler erzeugt an der richtigen Stelle eine rote Wellenlinie, nach der Korrektur verschwindet sie.
+
+**4.5 Ausführen (Stufe 4B)**
+- Runner im Web Worker: Assembly-Bytes und Referenzen übergeben, `Main`/Top-Level-Einstieg aufrufen, `Console.Out`/`Console.Error` zeilenweise zurückmelden.
+- Eingabe: Textfeld im Ausgabe-Panel für `Console.ReadLine` (zeilenweise; vorab eingegebene Eingaben werden gepuffert).
+- Abbrechen: Worker beenden und neu starten. Exit-Code und Laufzeit anzeigen.
+- Ausnahmen mit Stacktrace; Zeilen, die auf eigene Dateien zeigen, sind antippbar.
+- *Fertig, wenn:* Ein Konsolenprogramm mit Eingabe, Ausgabe und einer Ausnahme verhält sich wie lokal, und eine Endlosschleife lässt sich abbrechen, ohne dass die App hängt.
+
+**4.6 Bedienung und Feinschliff**
+- Ausgabe-Panel unten, ein- und ausklappbar (gleiches Muster wie die Vorschau), im Hochformat als eigene Ansicht.
+- Tastenkürzel **Cmd+Enter** (nicht Cmd+R: das lädt in Safari die Seite neu), Button „▶ Ausführen“ in der Editor-Leiste bei passenden Dateien.
+- Fortschrittsanzeige beim ersten Laden des Compilers („Compiler wird geladen, 1×, ca. X MB“ mit den Messwerten aus 4.0).
+- Falls nötig: auch die Übersetzung in den Worker verlagern.
+
+**4.7 Optional: NuGet-Pakete**
+- Pakete direkt von `api.nuget.org` (Flat-Container) laden, `lib/netX` auswählen, im Cache ablegen. **Prüfen:** CORS-Header von nuget.org. Ohne CORS ist das ohne Server nicht machbar und entfällt.
+- Nur reine .NET-Bibliotheken; Pakete mit nativen Teilen oder Source-Generatoren nicht.
+
+### Bewusste Grenzen
+
+- Kein Dateisystem außer dem Arbeitsspeicher, keine Prozesse, kein `System.Threading.Thread` (WASM ohne Threads). Netzwerk nur per `HttpClient` und nur zu Servern, die CORS erlauben.
+- Keine GUI-Programme (WinForms/WPF/MAUI), keine ASP.NET-Server.
+- Ausführungsgeschwindigkeit: Der .NET-Interpreter in WebAssembly ist deutlich langsamer als nativ. Für Lern- und Testprogramme reicht das, für Rechenlast nicht.
+
+### Risiken und offene Fragen (im Spike klären)
+
+| Risiko | Auswirkung | Gegenmaßnahme |
+|---|---|---|
+| Downloadgröße von Roslyn und Referenzen (geschätzt mehrere MB komprimiert, **messen**) | Langer erster Start des Compilers, Speicher auf dem iPad | Lazy Load, eigener Cache erst bei Nutzung, nur benötigte Referenzen laden |
+| Safari begrenzt den Speicher von Web Workers und WASM | Abstürze bei großen Projekten | Messen; Projektgröße begrenzen; Warnhinweis |
+| Zweite .NET-Laufzeit im Worker ist aufwendig oder instabil | 4.5 verzögert sich | Übergangslösung: Ausführen im Haupt-Thread mit klarer Warnung, dass Endlosschleifen die App blockieren |
+| Roslyn langsam beim ersten Lauf (JIT/Interpreter) | Träge Bedienung | Compilation-Objekt wiederverwenden, nur geänderte Syntaxbäume neu parsen |
+| CORS bei nuget.org | 4.7 entfällt | Ist optional |
+
+### Tests
+
+- `CodeSail.Compiler` und die Projekterkennung laufen auch unter normalem .NET. Deshalb lassen sich Übersetzung, Diagnosen und Projekterkennung als gewöhnliche xUnit-Tests prüfen, ohne Browser.
+- Ausführung im Worker und die Ausgabe im Panel prüft ein bUnit-Test mit einem simulierten Runner. Dazu kommt ein manueller Test auf dem iPad je Meilenstein.
+- CI misst die Größe der Compiler-Dateien und warnt bei deutlichem Wachstum.
 
 ## Querschnitt / laufend
 

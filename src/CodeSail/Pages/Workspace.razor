@@ -125,6 +125,23 @@
                 }
             </div>
 
+            @if (CanPreview)
+            {
+                @if (_previewOpen && !_narrow)
+                {
+                    <MudTooltip Text="@(_previewOnly ? "Code und Vorschau nebeneinander" : "Nur Vorschau")">
+                        <MudIconButton Icon="@(_previewOnly ? Icons.Material.Filled.VerticalSplit : Icons.Material.Filled.OpenInFull)"
+                                       OnClick="() => _previewOnly = !_previewOnly"
+                                       aria-label="@(_previewOnly ? "Code und Vorschau nebeneinander" : "Nur Vorschau")" />
+                    </MudTooltip>
+                }
+                <MudTooltip Text="@(_previewOpen ? "Vorschau schließen" : "Vorschau anzeigen")">
+                    <MudIconButton Icon="@(_previewOpen ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility)"
+                                   Color="@(_previewOpen ? Color.Primary : Color.Default)" OnClick="TogglePreviewAsync"
+                                   aria-label="@(_previewOpen ? "Vorschau schließen" : "Vorschau anzeigen")" aria-pressed="@_previewOpen" />
+                </MudTooltip>
+            }
+
             @if (DiffFile is null && ActiveFile is { } current)
             {
                 <MudMenu Icon="@Icons.Material.Filled.MoreVert" AnchorOrigin="Origin.BottomRight"
@@ -139,8 +156,17 @@
             }
         </div>
 
-        <div class="editor-host @(ActiveFile is null || DiffFile is not null ? "hidden" : "")">
-            <SourceEditor @ref="_editor" File="ActiveFile" ContentChanged="OnContentChangedAsync" SaveRequested="OnSaveRequested" />
+        <div class="editor-row @(ActiveFile is null || DiffFile is not null ? "hidden" : "")">
+            @* Der Editor bleibt immer eingebunden (auch bei "Nur Vorschau"), damit Undo-Verlauf und Modelle erhalten bleiben *@
+            <div class="editor-host @(ShowPreview && _previewOnly ? "hidden" : "")">
+                <SourceEditor @ref="_editor" File="ActiveFile" ContentChanged="OnContentChangedAsync" SaveRequested="OnSaveRequested" />
+            </div>
+            @if (ShowPreview)
+            {
+                <div class="preview-host @(_previewOnly ? "full" : "")">
+                    <PreviewPane File="ActiveFile" Tree="_tree" />
+                </div>
+            }
         </div>
 
         @if (DiffFile is not null)
@@ -171,6 +197,10 @@
     private bool _explorerOpen = true;
     private string? _loadedRepo;
 
+    private bool _previewOpen;
+    private bool _previewOnly;
+    private bool _narrow;
+
     private readonly List<CachedFile> _openFiles = [];
     private string? _activeKey;
     private SourceEditor? _editor;
@@ -189,6 +219,29 @@
     private CachedFile? ActiveFile => _openFiles.FirstOrDefault(f => f.Key == _activeKey);
 
     private CachedFile? DiffFile => _changes.FirstOrDefault(f => f.Key == _diffKey);
+
+    private bool CanPreview => DiffFile is null && ActiveFile is { } file && PreviewBuilder.KindOf(file.Path) != PreviewKind.None;
+
+    private bool ShowPreview => _previewOpen && CanPreview && _tree is not null;
+
+    /// <summary>
+    /// Querformat: Vorschau rechts neben dem Code (optional allein). Hochformat: dafür ist kein Platz,
+    /// dort schaltet der Button zwischen Code und Vorschau um.
+    /// </summary>
+    private async Task TogglePreviewAsync()
+    {
+        _previewOpen = !_previewOpen;
+        _narrow = await Browser.IsNarrowAsync();
+        if (_previewOpen && _narrow)
+        {
+            _previewOnly = true;
+            _explorerOpen = false;
+        }
+        else if (!_previewOpen && _narrow)
+        {
+            _previewOnly = false;
+        }
+    }
 
     private IReadOnlySet<string> DirtyPaths => _changes.Where(f => !f.Deleted).Select(f => f.Path).ToHashSet();
 
