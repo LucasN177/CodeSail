@@ -188,6 +188,111 @@ public class GitHubServiceTests
     }
 
     [Fact]
+    public async Task GetCommits_FiltersByPathAndPages()
+    {
+        _handler.Respond("""
+            [ { "sha": "abc1234567", "author": { "login": "ada" },
+                "commit": { "message": "Titel\n\nText", "author": { "name": "Ada", "date": "2026-10-01T10:00:00Z" } } } ]
+            """);
+
+        var commits = await _service.GetCommitsAsync("o", "r", "feature/x", "src/a b.cs", 2);
+
+        Assert.Equal("https://api.github.com/repos/o/r/commits?sha=feature%2Fx&per_page=30&page=2&path=src%2Fa%20b.cs", _handler.Uri);
+        var commit = Assert.Single(commits);
+        Assert.Equal(("Titel", "Text", "ada", "abc1234"), (commit.Title, commit.Body, commit.Author, commit.ShortSha));
+    }
+
+    [Fact]
+    public async Task MergeBranch_ReturnsNullWhenNothingToMerge()
+    {
+        _handler.Respond("", HttpStatusCode.NoContent);
+
+        var sha = await _service.MergeBranchAsync("o", "r", "feature", "main", "Merge main into feature");
+
+        Assert.Null(sha);
+        Assert.Equal("https://api.github.com/repos/o/r/merges", _handler.Uri);
+        Assert.Contains("\"base\":\"feature\"", _handler.Body);
+        Assert.Contains("\"head\":\"main\"", _handler.Body);
+    }
+
+    [Fact]
+    public async Task GetBlame_ParsesRangesFromGraphQl()
+    {
+        _handler.Respond("""
+            { "data": { "repository": { "object": { "blame": { "ranges": [
+              { "startingLine": 1, "endingLine": 3,
+                "commit": { "oid": "c1", "message": "Anfang", "committedDate": "2026-01-01T00:00:00Z", "author": { "name": "Ada L.", "user": { "login": "ada" } } } },
+              { "startingLine": 4, "endingLine": 4,
+                "commit": { "oid": "c2", "message": "Fix", "committedDate": "2026-02-01T00:00:00Z", "author": { "name": "Bob", "user": null } } } ] } } } } }
+            """);
+
+        var ranges = await _service.GetBlameAsync("o", "r", "main", "src/a.cs");
+
+        Assert.Equal("https://api.github.com/graphql", _handler.Uri);
+        Assert.Contains("\"expression\":\"main\"", _handler.Body);
+        Assert.Equal([(1, 3, "ada"), (4, 4, "Bob")], ranges.Select(r => (r.StartLine, r.EndLine, r.Commit.Author)));
+    }
+
+    [Fact]
+    public async Task GetBlame_ReportsGraphQlErrors()
+    {
+        _handler.Respond("""{ "data": null, "errors": [ { "message": "Could not resolve file" } ] }""");
+
+        var ex = await Assert.ThrowsAsync<GitHubApiException>(() => _service.GetBlameAsync("o", "r", "main", "fehlt.cs"));
+
+        Assert.Equal("Could not resolve file", ex.ApiMessage);
+    }
+
+    [Fact]
+    public async Task GetCiStatus_CombinesSourcesAndNotesMissingPermission()
+    {
+        _handler.RespondInOrder(
+            ("""{ "message": "Resource not accessible" }""", HttpStatusCode.Forbidden),
+            ("""
+             { "check_runs": [
+               { "name": "build", "status": "completed", "conclusion": "success", "html_url": "u1" },
+               { "name": "test", "status": "in_progress", "conclusion": null, "html_url": "u2" } ] }
+             """, HttpStatusCode.OK));
+
+        var ci = await _service.GetCiStatusAsync("o", "r", "h1");
+
+        Assert.True(ci.MissingPermission);
+        Assert.Equal([("build", CheckState.Success), ("test", CheckState.Pending)], ci.Items.Select(i => (i.Name, i.State)));
+        Assert.Equal(CheckState.Pending, ci.Overall);
+    }
+
+    [Fact]
+    public async Task GetConversation_MergesAndSortsAndSkipsEmptyReviews()
+    {
+        _handler.RespondInOrder(
+            ("""[ { "user": { "login": "bob" }, "body": "Später", "created_at": "2026-10-03T00:00:00Z" } ]""", HttpStatusCode.OK),
+            ("""
+             [ { "user": { "login": "ada" }, "body": "", "state": "APPROVED", "submitted_at": "2026-10-02T00:00:00Z" },
+               { "user": { "login": "ada" }, "body": "", "state": "COMMENTED", "submitted_at": "2026-10-02T01:00:00Z" } ]
+             """, HttpStatusCode.OK),
+            ("""[ { "user": { "login": "eve" }, "body": "Hier", "created_at": "2026-10-01T00:00:00Z", "path": "a.cs", "line": 7 } ]""", HttpStatusCode.OK));
+
+        var items = await _service.GetConversationAsync("o", "r", 5);
+
+        Assert.Equal(
+            [(ConversationKind.LineComment, "eve"), (ConversationKind.Review, "ada"), (ConversationKind.Comment, "bob")],
+            items.Select(i => (i.Kind, i.Author)));
+        Assert.Equal(("a.cs", 7), (items[0].Path, items[0].Line));
+        Assert.Equal("APPROVED", items[1].ReviewState);
+    }
+
+    [Fact]
+    public async Task SubmitReview_SendsEvent()
+    {
+        _handler.Respond("{}");
+
+        await _service.SubmitReviewAsync("o", "r", 5, ReviewAction.RequestChanges, "Bitte Tests ergänzen");
+
+        Assert.Equal("https://api.github.com/repos/o/r/pulls/5/reviews", _handler.Uri);
+        Assert.Contains("\"event\":\"REQUEST_CHANGES\"", _handler.Body);
+    }
+
+    [Fact]
     public async Task RateLimitHeaders_UpdateRateLimit()
     {
         _handler.Respond("""{ "object": { "sha": "c9" } }""", headers: new()
@@ -214,19 +319,32 @@ public class GitHubServiceTests
         public string? Body { get; private set; }
         public string? Authorization { get; private set; }
 
+        private readonly Queue<(string Json, HttpStatusCode Status)> _queue = new();
+
+        public List<string> Uris { get; } = [];
+
         public void Respond(string json, HttpStatusCode status = HttpStatusCode.OK, Dictionary<string, string>? headers = null)
         {
             (_response, _status, _headers) = (json, status, headers ?? []);
         }
 
+        /// <summary>Antworten für mehrere aufeinanderfolgende Anfragen, in dieser Reihenfolge.</summary>
+        public void RespondInOrder(params (string Json, HttpStatusCode Status)[] responses)
+        {
+            foreach (var response in responses)
+                _queue.Enqueue(response);
+        }
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Uri = request.RequestUri!.AbsoluteUri;
+            Uris.Add(Uri);
             Method = request.Method;
             Authorization = request.Headers.Authorization?.ToString();
             Body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
 
-            var response = new HttpResponseMessage(_status) { Content = new StringContent(_response) };
+            var (json, status) = _queue.Count > 0 ? _queue.Dequeue() : (_response, _status);
+            var response = new HttpResponseMessage(status) { Content = new StringContent(json) };
             foreach (var (name, value) in _headers)
                 response.Headers.Add(name, value);
             return response;

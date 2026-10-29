@@ -25,9 +25,15 @@ It connects straight to your **GitHub** repositories through the GitHub REST API
 | **Offline indicator** and API rate-limit display | ✅ |
 | **Create, rename, move and delete files** | ✅ |
 | **Changes view** with side-by-side diff (Monaco diff editor) | ✅ |
-| **Commit & push** several files as one commit, with conflict detection | ✅ |
-| **Branches tab**: switch, create, compare with the default branch, rename, delete; shows local changes per branch | ✅ |
-| **Pull requests tab**: list, create (incl. drafts), view description and diffs, merge (merge/squash/rebase), close and reopen | ✅ |
+| **Commit & push** several files as one commit; conflicting edits are merged line by line (three-way merge), overlaps are marked in the editor | ✅ |
+| **Search in all files** (Cmd+Shift+F) with case, whole-word and regex options, including uncommitted edits and offline | ✅ |
+| **History**: commit log per branch, file history, commit details with diff, blame (who changed which line) | ✅ |
+| **Quick open** (Cmd+P) with fuzzy matching | ✅ |
+| **Editor settings**: font size, word wrap, minimap, light/dark/system theme | ✅ |
+| **Touch toolbar** with undo/redo, find/replace, Tab, Esc, arrow keys and brackets (keys the iPad on-screen keyboard lacks) | ✅ |
+| **Images and binaries**: images and PDFs are shown, other binaries can be downloaded | ✅ |
+| **Branches tab**: switch, create, compare with and update from the default branch, rename, delete; shows local changes per branch | ✅ |
+| **Pull requests tab**: list, create (incl. drafts), edit, view description, diffs, CI status, comments and reviews; comment, approve, request changes; update branch; merge (merge/squash/rebase), close and reopen | ✅ |
 | **Live preview** for Markdown and static HTML (side by side or full, sandboxed) | ✅ |
 | **Run JavaScript and TypeScript** with an output panel (Cmd+Enter), isolated in a sandboxed Web Worker | ✅ |
 | Compile and run C# in the browser (Roslyn) | 🧪 Phase 4B (planned) |
@@ -40,7 +46,7 @@ It connects straight to your **GitHub** repositories through the GitHub REST API
 3. New files: **Files → New file** (use `/` for folders). Rename, move or delete via the **⋮** menu of the open file.
 4. For Markdown and HTML files, tap the 👁 icon for a live preview. In landscape it opens next to the code (⛶ shows only the preview); in portrait it toggles between code and preview. Images, stylesheets and scripts from the repository are embedded, including your uncommitted edits.
 5. For `.js` and `.ts` files, tap ▶ or press **Cmd + Enter** to run the file. Output from `console.log` appears in a panel at the bottom; tap an error to jump to its line. TypeScript type errors are shown as warnings, syntax errors stop the run. Long-running code can be stopped at any time without freezing the app.
-6. The sidebar has four tabs (icons): **Files**, **Changes**, **Branches** and **Pull requests**. In **Branches** you switch, create, compare, rename and delete branches; a badge shows how many files have local changes on each branch. In **Pull requests** you create pull requests and open one to read its description, review the changed files and merge or close it.
+6. The sidebar has six tabs (icons): **Files**, **Search**, **Changes**, **History**, **Branches** and **Pull requests**. **Cmd + P** opens any file by name, **Cmd + Shift + F** searches all files; the ⋮ menu of an open file shows its history and blame. In **Branches** you switch, create, compare, rename and delete branches; a badge shows how many files have local changes on each branch. In **Pull requests** you create pull requests and open one to read its description, review the changed files and merge or close it.
 7. Switch to the **Changes** tab in the sidebar. It lists every changed (**M**), added (**A**) and deleted (**D**) file. Tap one to see a diff, or use ↶ to discard it.
 8. Enter a commit message and tap **Commit & push**. All changes become a single commit.
    Tick **Commit to a new branch** to create a branch instead, and optionally open a pull request against the current branch.
@@ -83,6 +89,7 @@ All dependencies are free and open source.
   - **Permissions:**
     - *Contents: Read and write*: read files, commit, create branches
     - *Pull requests: Read and write*: only needed for the pull requests tab (list, create, merge, close)
+    - *Commit statuses: Read* and *Checks: Read*: optional, only for the CI status of pull requests
     - *Metadata: Read* is added automatically
 
 ### Run

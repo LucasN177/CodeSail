@@ -1,0 +1,31 @@
+.quick-results {
+    max-height: 55vh;
+    overflow-y: auto;
+    padding-bottom: 6px;
+}
+
+.quick-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    min-height: 44px;
+    cursor: pointer;
+}
+
+.quick-item.selected,
+.quick-item:hover {
+    background: var(--mud-palette-action-default-hover);
+}
+
+.quick-name {
+    white-space: nowrap;
+}
+
+.quick-folder {
+    font-size: 0.8rem;
+    color: var(--mud-palette-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

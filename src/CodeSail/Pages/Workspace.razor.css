@@ -131,3 +131,8 @@
         box-shadow: var(--mud-elevation-8);
     }
 }
+
+.history-host {
+    overflow-y: auto;
+    padding: 16px 20px;
+}

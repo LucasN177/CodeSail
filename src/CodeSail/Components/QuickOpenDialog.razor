@@ -1,0 +1,97 @@
+@* Datei schnell öffnen (Cmd+P): unscharfe Suche über alle Pfade, Pfeiltasten und Enter zum Auswählen. *@
+
+<MudDialog ContentClass="pa-0">
+    <DialogContent>
+        <div class="pa-3 pb-1">
+            <MudTextField @bind-Value="_query" Placeholder="Dateiname eingeben, z. B. wsvc für WorkspaceService.cs"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="true" AutoFocus="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          OnKeyDown="OnKeyDown" spellcheck="false" autocapitalize="off" autocomplete="off" />
+        </div>
+        <div class="quick-results" role="listbox">
+            @if (Results.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="pa-3 mud-text-secondary">Keine passende Datei.</MudText>
+            }
+            @for (var i = 0; i < Results.Count; i++)
+            {
+                var path = Results[i];
+                var index = i;
+                var slash = path.LastIndexOf('/');
+                <div class="quick-item @(index == _selected ? "selected" : "")" role="option" aria-selected="@(index == _selected)"
+                     @onclick="() => Choose(path)">
+                    <MudIcon Icon="@Icons.Material.Outlined.InsertDriveFile" Size="Size.Small" />
+                    <span class="quick-name">@path[(slash + 1)..]</span>
+                    @if (slash > 0)
+                    {
+                        <span class="quick-folder">@path[..slash]</span>
+                    }
+                    @if (string.IsNullOrWhiteSpace(_query) && Recent.Contains(path))
+                    {
+                        <span class="quick-folder ml-auto">zuletzt geöffnet</span>
+                    }
+                </div>
+            }
+        </div>
+    </DialogContent>
+</MudDialog>
+
+@code {
+    private string _query = "";
+    private int _selected;
+    private string? _lastQuery;
+    private IReadOnlyList<string> _results = [];
+
+    [CascadingParameter] public IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public IReadOnlyList<string> Paths { get; set; } = [];
+
+    /// <summary>Offene Dateien; bei leerer Suche erscheinen sie oben.</summary>
+    [Parameter] public IReadOnlyList<string> Recent { get; set; } = [];
+
+    private IReadOnlyList<string> Results
+    {
+        get
+        {
+            if (_lastQuery != _query)
+            {
+                _lastQuery = _query;
+                _selected = 0;
+                _results = string.IsNullOrWhiteSpace(_query)
+                    ? Recent.Concat(Paths.Except(Recent)).Take(50).ToList()
+                    : FuzzyMatcher.Search(_query, Paths);
+            }
+            return _results;
+        }
+    }
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                _selected = Math.Min(_selected + 1, Results.Count - 1);
+                break;
+            case "ArrowUp":
+                _selected = Math.Max(_selected - 1, 0);
+                break;
+            case "Enter" when Results.Count > 0:
+                Choose(Results[Math.Clamp(_selected, 0, Results.Count - 1)]);
+                break;
+            case "Escape":
+                Dialog.Cancel();
+                break;
+        }
+    }
+
+    private void Choose(string path) => Dialog.Close(DialogResult.Ok(path));
+
+    public static async Task<string?> ShowAsync(IDialogService dialogs, IReadOnlyList<string> paths, IReadOnlyList<string> recent)
+    {
+        var dialog = await dialogs.ShowAsync<QuickOpenDialog>("Datei öffnen",
+            new DialogParameters<QuickOpenDialog> { { x => x.Paths, paths }, { x => x.Recent, recent } },
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true, Position = DialogPosition.TopCenter, NoHeader = true });
+        var result = await dialog.Result;
+        return result is { Canceled: false, Data: string path } ? path : null;
+    }
+}

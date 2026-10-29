@@ -41,6 +41,11 @@ public sealed class CommitService(IGitHubService gitHub, IFileCache cache)
         if (request.Changes.Count == 0)
             throw new InvalidOperationException("Es gibt keine Änderungen zum Committen.");
 
+        var withMarkers = request.Changes.Where(f => !f.Deleted && ThreeWayMerge.HasConflictMarkers(f.Content)).Select(f => f.Path).ToList();
+        if (withMarkers.Count > 0)
+            throw new InvalidOperationException(
+                $"Noch nicht aufgelöste Konfliktmarkierungen (<<<<<<<) in: {string.Join(", ", withMarkers)}. Bereinige sie zuerst.");
+
         // Zwei Versuche: Wird der Branch zwischen Prüfung und Push von jemand anderem verschoben,
         // lehnt GitHub das Update ab (kein Fast-Forward) und alles wird gegen den neuen Stand geprüft.
         for (var attempt = 1; ; attempt++)

@@ -1,0 +1,109 @@
+@* Zeilenherkunft (Blame): links pro Abschnitt Commit, Autor und Alter, rechts der Code. *@
+@inject IGitHubService GitHub
+
+<div class="blame-view">
+    <div class="blame-header">
+        <MudText Typo="Typo.subtitle2" Class="text-truncate">@Path</MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary ml-2">Stand auf GitHub (@Branch)</MudText>
+    </div>
+    @if (HasLocalChanges)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" Square="true">
+            Die Datei hat lokale Änderungen. Angezeigt wird der zuletzt committete Stand.
+        </MudAlert>
+    }
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="ma-4">@_error</MudAlert>
+    }
+    else if (_rows is null)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else
+    {
+        <div class="blame-body">
+            <Virtualize Items="_rows" ItemSize="20" OverscanCount="40" Context="row">
+                <div class="blame-row @(row.Range is not null ? "range-start" : "")">
+                    <div class="blame-meta" style="@($"border-left-color: {AgeColor(row.Commit.Date)}")">
+                        @if (row.Range is { } range)
+                        {
+                            <span class="blame-commit" @onclick="() => OpenCommit.InvokeAsync(range.Commit.Sha)"
+                                  title="@($"{range.Commit.Title}\n{range.Commit.ShortSha} · {range.Commit.Author}")">
+                                <span class="blame-age">@(range.Commit.Date is { } d ? TimeFormat.Relative(d, DateTimeOffset.UtcNow) : "")</span>
+                                <span class="blame-author">@range.Commit.Author</span>
+                                <span class="blame-message">@range.Commit.Title</span>
+                            </span>
+                        }
+                    </div>
+                    <span class="blame-line">@row.Line</span>
+                    <span class="blame-code">@row.Text</span>
+                </div>
+            </Virtualize>
+        </div>
+    }
+</div>
+
+@code {
+    private List<Row>? _rows;
+    private string? _error;
+    private string? _loaded;
+
+    private sealed record Row(int Line, string Text, CommitSummary Commit, BlameRange? Range);
+
+    [Parameter, EditorRequired] public string Owner { get; set; } = "";
+    [Parameter, EditorRequired] public string Repo { get; set; } = "";
+    [Parameter, EditorRequired] public string Branch { get; set; } = "";
+    [Parameter, EditorRequired] public string Path { get; set; } = "";
+
+    /// <summary>Committeter Inhalt der Datei (zu dem die Zeilenangaben von GitHub passen).</summary>
+    [Parameter, EditorRequired] public string Content { get; set; } = "";
+
+    [Parameter] public bool HasLocalChanges { get; set; }
+
+    [Parameter] public EventCallback<string> OpenCommit { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = $"{Owner}/{Repo}@{Branch}:{Path}";
+        if (_loaded == key)
+            return;
+        _loaded = key;
+        _rows = null;
+        _error = null;
+        try
+        {
+            var ranges = await GitHub.GetBlameAsync(Owner, Repo, Branch, Path);
+            _rows = BuildRows(Content, ranges);
+        }
+        catch (Exception ex)
+        {
+            _error = GitHubErrors.Describe(ex);
+        }
+    }
+
+    private static List<Row> BuildRows(string content, IReadOnlyList<BlameRange> ranges)
+    {
+        var lines = content.Split('\n');
+        var rows = new List<Row>(lines.Length);
+        foreach (var range in ranges)
+        {
+            for (var line = range.StartLine; line <= range.EndLine && line <= lines.Length; line++)
+                rows.Add(new Row(line, lines[line - 1].TrimEnd('\r'), range.Commit, line == range.StartLine ? range : null));
+        }
+        return rows;
+    }
+
+    /// <summary>Junge Änderungen leuchtend, alte blass (wie die Alters-Leiste auf GitHub).</summary>
+    private static string AgeColor(DateTimeOffset? date)
+    {
+        var days = date is { } d ? (DateTimeOffset.UtcNow - d).TotalDays : 9999;
+        return days switch
+        {
+            < 7 => "#f0883e",
+            < 30 => "#d29922",
+            < 180 => "#8b949e",
+            _ => "#484f58"
+        };
+    }
+}

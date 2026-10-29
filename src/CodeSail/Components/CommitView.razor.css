@@ -1,0 +1,29 @@
+.commit-view {
+    height: 100%;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.commit-section {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--mud-palette-lines-default);
+}
+
+::deep .commit-heading {
+    overflow-wrap: anywhere;
+}
+
+.commit-body {
+    margin: 8px 0 0;
+    white-space: pre-wrap;
+    font-family: inherit;
+    color: var(--mud-palette-text-secondary);
+}
+
+.commit-sha {
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+}
+
+.diff-add { color: #3fb950; }
+.diff-del { color: #f85149; }

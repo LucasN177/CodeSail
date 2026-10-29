@@ -1,0 +1,57 @@
+@* Editor- und Darstellungseinstellungen; jede Änderung wird sofort übernommen und gespeichert. *@
+@inject SettingsService Settings
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.subtitle2">Schriftgröße im Editor</MudText>
+        <div class="d-flex align-center gap-2 mb-3">
+            <MudIconButton Icon="@Icons.Material.Filled.Remove" Variant="Variant.Outlined" Size="Size.Small"
+                           Disabled="@(_s.FontSize <= EditorSettings.MinFontSize)" OnClick="() => UpdateAsync(_s with { FontSize = _s.FontSize - 1 })"
+                           aria-label="Schrift kleiner" />
+            <MudText Style="min-width: 48px; text-align: center">@_s.FontSize px</MudText>
+            <MudIconButton Icon="@Icons.Material.Filled.Add" Variant="Variant.Outlined" Size="Size.Small"
+                           Disabled="@(_s.FontSize >= EditorSettings.MaxFontSize)" OnClick="() => UpdateAsync(_s with { FontSize = _s.FontSize + 1 })"
+                           aria-label="Schrift größer" />
+        </div>
+
+        <MudSwitch T="bool" Value="_s.WordWrap" ValueChanged="v => UpdateAsync(_s with { WordWrap = v })" Color="Color.Primary"
+                   Label="Lange Zeilen umbrechen" />
+        <MudSwitch T="bool" Value="_s.Minimap" ValueChanged="v => UpdateAsync(_s with { Minimap = v })" Color="Color.Primary"
+                   Label="Minimap (Übersicht rechts im Editor)" />
+
+        <MudText Typo="Typo.subtitle2" Class="mt-3">Design</MudText>
+        <MudRadioGroup T="AppTheme" Value="_s.Theme" ValueChanged="v => UpdateAsync(_s with { Theme = v })">
+            <MudRadio Value="AppTheme.Dark" Color="Color.Primary">Dunkel</MudRadio>
+            <MudRadio Value="AppTheme.Light" Color="Color.Primary">Hell</MudRadio>
+            <MudRadio Value="AppTheme.System" Color="Color.Primary">Wie das System</MudRadio>
+        </MudRadioGroup>
+
+        <MudText Typo="Typo.subtitle2" Class="mt-3">Touch-Leiste über dem Editor</MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+            Rückgängig, Suchen, Tab, Esc, Pfeile und mehr – Tasten, die der Bildschirmtastatur des iPads fehlen.
+        </MudText>
+        <MudRadioGroup T="TouchToolbarMode" Value="_s.TouchToolbar" ValueChanged="v => UpdateAsync(_s with { TouchToolbar = v })">
+            <MudRadio Value="TouchToolbarMode.Auto" Color="Color.Primary">Automatisch (bei Touchscreen)</MudRadio>
+            <MudRadio Value="TouchToolbarMode.On" Color="Color.Primary">Immer</MudRadio>
+            <MudRadio Value="TouchToolbarMode.Off" Color="Color.Primary">Nie</MudRadio>
+        </MudRadioGroup>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => UpdateAsync(new EditorSettings())">Zurücksetzen</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="() => Dialog.Close()">Fertig</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private EditorSettings _s = new();
+
+    [CascadingParameter] public IMudDialogInstance Dialog { get; set; } = default!;
+
+    protected override void OnInitialized() => _s = Settings.Settings;
+
+    private async Task UpdateAsync(EditorSettings settings)
+    {
+        _s = settings.Normalized();
+        await Settings.SaveAsync(_s);
+    }
+}

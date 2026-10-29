@@ -1,0 +1,58 @@
+.binary-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.binary-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 12px;
+    min-height: 44px;
+    border-bottom: 1px solid var(--mud-palette-lines-default);
+}
+
+.binary-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Schachbrett, damit transparente Bereiche erkennbar sind */
+.binary-body.checker {
+    background-color: #2a2a2a;
+    background-image:
+        linear-gradient(45deg, #333 25%, transparent 25%), linear-gradient(-45deg, #333 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #333 75%), linear-gradient(-45deg, transparent 75%, #333 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+}
+
+.binary-body img.fit {
+    max-width: calc(100% - 32px);
+    max-height: calc(100% - 32px);
+    object-fit: contain;
+}
+
+.binary-body img.actual {
+    max-width: none;
+    margin: 16px;
+    align-self: flex-start;
+}
+
+.binary-pdf {
+    width: 100%;
+    height: 100%;
+}
+
+.binary-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--mud-palette-text-secondary);
+}

@@ -65,6 +65,32 @@ public interface IGitHubService
 
     /// <summary>Schließt einen Pull Request bzw. öffnet ihn wieder.</summary>
     Task SetPullRequestOpenAsync(string owner, string name, int number, bool open);
+
+    Task UpdatePullRequestAsync(string owner, string name, int number, string title, string body);
+
+    /// <summary>Kommentare, Reviews und Zeilenkommentare eines Pull Requests, älteste zuerst.</summary>
+    Task<IReadOnlyList<ConversationItem>> GetConversationAsync(string owner, string name, int number);
+
+    Task AddCommentAsync(string owner, string name, int number, string body);
+
+    Task SubmitReviewAsync(string owner, string name, int number, ReviewAction action, string body);
+
+    /// <summary>Status-Checks und Check-Runs eines Commits (CI); fehlende Leserechte werden vermerkt statt geworfen.</summary>
+    Task<CiStatus> GetCiStatusAsync(string owner, string name, string sha);
+
+    /// <summary>Commits eines Branches (neueste zuerst), optional nur die einer Datei; 30 pro Seite.</summary>
+    Task<IReadOnlyList<CommitSummary>> GetCommitsAsync(string owner, string name, string branch, string? path, int page);
+
+    Task<CommitDetails> GetCommitAsync(string owner, string name, string sha);
+
+    /// <summary>
+    /// Übernimmt <paramref name="head"/> per Merge-Commit in <paramref name="baseBranch"/> (auf GitHub).
+    /// Liefert die SHA des Merge-Commits oder null, wenn nichts zu übernehmen war; 409 bei Konflikten.
+    /// </summary>
+    Task<string?> MergeBranchAsync(string owner, string name, string baseBranch, string head, string message);
+
+    /// <summary>Zeilenherkunft einer Datei auf einem Branch (nur über die GraphQL-API verfügbar).</summary>
+    Task<IReadOnlyList<BlameRange>> GetBlameAsync(string owner, string name, string branch, string path);
 }
 
 /// <param name="Content">Neuer Inhalt; null löscht die Datei.</param>

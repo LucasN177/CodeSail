@@ -50,6 +50,8 @@
                                      OnClick="() => Switch.InvokeAsync(branch)">Wechseln</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.CompareArrows" Disabled="@(isDefault || !Online)"
                                      OnClick="() => Compare.InvokeAsync(branch)">Mit @DefaultBranch vergleichen</MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.Sync" Disabled="@(isDefault || !Online || branch.Protected)"
+                                     OnClick="() => UpdateFromDefault.InvokeAsync(branch)">Mit @DefaultBranch aktualisieren</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.CallMerge" Disabled="@(isDefault || !Online)"
                                      OnClick="() => CreatePullRequest.InvokeAsync(branch)">Pull Request erstellen</MudMenuItem>
                         <MudMenuItem Icon="@Icons.Material.Filled.AddCircleOutline" Disabled="!Online"
@@ -82,6 +84,9 @@
     [Parameter] public EventCallback<BranchInfo> CreatePullRequest { get; set; }
     [Parameter] public EventCallback<BranchInfo> Rename { get; set; }
     [Parameter] public EventCallback<BranchInfo> Delete { get; set; }
+
+    /// <summary>Neue Commits des Standard-Branches per Merge übernehmen.</summary>
+    [Parameter] public EventCallback<BranchInfo> UpdateFromDefault { get; set; }
 
     private BranchInfo CurrentBranch => Branches.FirstOrDefault(b => b.Name == Current) ?? Branches[0];
 

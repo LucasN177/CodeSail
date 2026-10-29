@@ -1,5 +1,6 @@
 @* Detailansicht eines Pull Requests im Hauptbereich: Beschreibung, Dateien mit Diff, Mergen/Schließen. *@
 @inject PullRequestService PullRequests
+@inject MergeService Merges
 @inject IDialogService Dialogs
 @inject ISnackbar Snackbar
 
@@ -24,6 +25,10 @@
                     <MudIcon Icon="@PullRequestsPanel.StateIcon(pr)" Size="Size.Small" /> @PullRequestsPanel.StateLabel(pr)
                 </span>
                 <MudText Typo="Typo.h6" Class="pr-heading">@pr.Title <span class="mud-text-secondary">#@pr.Number</span></MudText>
+                <MudTooltip Text="Titel und Beschreibung bearbeiten">
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" Disabled="@(_busy || !Online)"
+                                   OnClick="EditAsync" aria-label="Titel und Beschreibung bearbeiten" />
+                </MudTooltip>
             </div>
             <MudText Typo="Typo.body2" Class="mud-text-secondary mt-1">
                 <b>@pr.Author</b> möchte <code>@pr.Head</code> in <code>@pr.Base</code> übernehmen ·
@@ -47,6 +52,13 @@
                     <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Replay"
                                Disabled="@(_busy || !Online)" OnClick="() => SetOpenAsync(true)">Wieder öffnen</MudButton>
                 }
+                @if (pr.State == PullRequestState.Open && _details.MergeableState == "behind" && PullRequestService.IsSameRepository(Owner, Repo, pr))
+                {
+                    <MudTooltip Text="@($"Neue Commits von {pr.Base} in {pr.Head} übernehmen")">
+                        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Sync"
+                                   Disabled="@(_busy || !Online)" OnClick="UpdateBranchAsync">Branch aktualisieren</MudButton>
+                    </MudTooltip>
+                }
                 @if (CanOpenBranch)
                 {
                     <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.AccountTree"
@@ -57,6 +69,45 @@
             @if (pr.State == PullRequestState.Open && MergeProblem is { } problem)
             {
                 <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">@problem</MudAlert>
+            }
+
+            @if (_ci is { } ci)
+            {
+                <div class="pr-ci mt-3">
+                    @if (ci.Overall is { } overall)
+                    {
+                        <div class="pr-ci-summary" @onclick="() => _ciOpen = !_ciOpen" role="button" aria-expanded="@_ciOpen">
+                            <MudIcon Icon="@CheckIcon(overall)" Size="Size.Small" Style="@($"color: {CheckColor(overall)}")" />
+                            <span>@CheckSummary(ci)</span>
+                            <MudIcon Icon="@(_ciOpen ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)" Size="Size.Small" />
+                        </div>
+                        @if (_ciOpen)
+                        {
+                            @foreach (var check in ci.Items)
+                            {
+                                <div class="pr-ci-item">
+                                    <MudIcon Icon="@CheckIcon(check.State)" Size="Size.Small" Style="@($"color: {CheckColor(check.State)}")" />
+                                    <span class="pr-ci-name">@check.Name</span>
+                                    <span class="mud-text-secondary pr-ci-desc">@check.Description</span>
+                                    @if (check.Url is { } url)
+                                    {
+                                        <MudLink Href="@url" Target="_blank" Typo="Typo.caption">Details</MudLink>
+                                    }
+                                </div>
+                            }
+                        }
+                    }
+                    else if (!ci.MissingPermission)
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">Keine CI-Checks für diesen Stand.</MudText>
+                    }
+                    @if (ci.MissingPermission)
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+                            CI-Status unvollständig: Das Token braucht dafür die Leserechte „Commit statuses“ und „Checks“.
+                        </MudText>
+                    }
+                </div>
             }
         </header>
 
@@ -79,40 +130,63 @@
             }
             else
             {
-                @if (_details.ChangedFiles > _files.Count)
+                <FileDiffList Files="_files" Total="_details.ChangedFiles" />
+            }
+        </section>
+
+        <section class="pr-section">
+            <MudText Typo="Typo.subtitle1" Class="mb-2">Unterhaltung</MudText>
+            @if (_conversation is null)
+            {
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+            }
+            else if (_conversation.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">Noch keine Kommentare oder Reviews.</MudText>
+            }
+            else
+            {
+                @foreach (var item in _conversation)
                 {
-                    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-1">
-                        Angezeigt werden die ersten @_files.Count von @_details.ChangedFiles Dateien.
-                    </MudText>
-                }
-                @foreach (var file in _files)
-                {
-                    var open = _expanded.Contains(file.Path);
-                    <div class="pr-file">
-                        <div class="pr-file-header" @onclick="() => Toggle(file.Path)" role="button" aria-expanded="@open">
-                            <MudIcon Icon="@(open ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)" Size="Size.Small" />
-                            <span class="pr-file-status pr-status-@file.Status">@StatusLetter(file.Status)</span>
-                            <span class="pr-file-path" title="@file.Path">
-                                @if (file.PreviousPath is { } previous) { <span class="mud-text-secondary">@previous → </span> }
-                                @file.Path
-                            </span>
-                            <span class="pr-add">+@file.Additions</span>
-                            <span class="pr-del">−@file.Deletions</span>
+                    <div class="pr-comment">
+                        <div class="pr-comment-head">
+                            <b>@item.Author</b>
+                            @if (item.Kind == ConversationKind.Review)
+                            {
+                                <span class="pr-review-badge review-@item.ReviewState?.ToLowerInvariant()">@ReviewLabel(item.ReviewState)</span>
+                            }
+                            @if (item.Kind == ConversationKind.LineComment)
+                            {
+                                <code class="pr-comment-path">@item.Path@(item.Line is { } l ? $":{l}" : "")</code>
+                            }
+                            <span class="mud-text-secondary">@(item.Date > DateTimeOffset.MinValue ? TimeFormat.Relative(item.Date, DateTimeOffset.UtcNow) : "")</span>
                         </div>
-                        @if (open)
+                        @if (!string.IsNullOrWhiteSpace(item.Body))
                         {
-                            @if (file.Patch is null)
-                            {
-                                <div class="pr-patch-empty">Kein Diff verfügbar (Binärdatei oder zu groß). Auf GitHub ansehen.</div>
-                            }
-                            else
-                            {
-                                <pre class="pr-patch">@foreach (var line in file.Patch.Split('\n')){<span class="@PatchClass(line)">@line
-</span>}</pre>
-                            }
+                            @* Bewusst als reiner Text: Kommentare stammen von Dritten und werden nicht als HTML gerendert *@
+                            <div class="pr-comment-body">@item.Body</div>
                         }
                     </div>
                 }
+            }
+
+            @if (pr.State != PullRequestState.Merged)
+            {
+                <MudTextField @bind-Value="_reply" Label="Kommentar oder Review (Markdown)" Variant="Variant.Outlined" Lines="4"
+                              Immediate="true" Disabled="@(_busy || !Online)" Class="mt-2" />
+                <div class="d-flex flex-wrap gap-2 mt-2">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Comment"
+                               Disabled="@(_busy || !Online || string.IsNullOrWhiteSpace(_reply))"
+                               OnClick="CommentAsync">Kommentieren</MudButton>
+                    @if (pr.State == PullRequestState.Open)
+                    {
+                        <MudButton Variant="Variant.Outlined" Color="Color.Success" StartIcon="@Icons.Material.Filled.Check"
+                                   Disabled="@(_busy || !Online)" OnClick="() => ReviewAsync(ReviewAction.Approve)">Genehmigen</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.RateReview"
+                                   Disabled="@(_busy || !Online || string.IsNullOrWhiteSpace(_reply))"
+                                   OnClick="() => ReviewAsync(ReviewAction.RequestChanges)">Änderungen anfordern</MudButton>
+                    }
+                </div>
             }
         </section>
     }
@@ -121,7 +195,10 @@
 @code {
     private PullRequestDetails? _details;
     private IReadOnlyList<PullRequestFile>? _files;
-    private readonly HashSet<string> _expanded = [];
+    private IReadOnlyList<ConversationItem>? _conversation;
+    private CiStatus? _ci;
+    private bool _ciOpen;
+    private string _reply = "";
     private string? _error;
     private bool _busy;
     private (string, string, int)? _loaded;
@@ -163,16 +240,17 @@
         _loaded = (Owner, Repo, Number);
         _details = null;
         _files = null;
+        _conversation = null;
+        _ci = null;
         _error = null;
-        _expanded.Clear();
         try
         {
             _details = await PullRequests.GetAsync(Owner, Repo, Number);
             StateHasChanged();
             _files = await PullRequests.GetFilesAsync(Owner, Repo, Number);
-            // Kleine Pull Requests direkt aufgeklappt zeigen
-            if (_files.Count <= 3)
-                _expanded.UnionWith(_files.Select(f => f.Path));
+            StateHasChanged();
+            _ci = await PullRequests.GetCiStatusAsync(Owner, Repo, _details.HeadSha);
+            _conversation = await PullRequests.GetConversationAsync(Owner, Repo, Number);
         }
         catch (Exception ex)
         {
@@ -215,6 +293,122 @@
         }
     }
 
+    private async Task EditAsync()
+    {
+        if (_details is null)
+            return;
+        var dialog = await Dialogs.ShowAsync<EditPullRequestDialog>($"#{Number} bearbeiten",
+            new DialogParameters<EditPullRequestDialog> { { x => x.Title, _details.Summary.Title }, { x => x.Body, _details.Body } },
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (await dialog.Result is not { Canceled: false, Data: ValueTuple<string, string> edited })
+            return;
+
+        await RunAsync(async () =>
+        {
+            await PullRequests.UpdateAsync(Owner, Repo, Number, edited.Item1, edited.Item2);
+            Snackbar.Add("Pull Request aktualisiert.", Severity.Success);
+            await LoadAsync();
+            await Changed.InvokeAsync(false);
+        });
+    }
+
+    private Task CommentAsync() => RunAsync(async () =>
+    {
+        await PullRequests.CommentAsync(Owner, Repo, Number, _reply);
+        _reply = "";
+        _conversation = await PullRequests.GetConversationAsync(Owner, Repo, Number);
+    });
+
+    private Task ReviewAsync(ReviewAction action) => RunAsync(async () =>
+    {
+        await PullRequests.ReviewAsync(Owner, Repo, Number, action, _reply);
+        _reply = "";
+        Snackbar.Add(action == ReviewAction.Approve ? "Pull Request genehmigt." : "Änderungen angefordert.", Severity.Success);
+        _conversation = await PullRequests.GetConversationAsync(Owner, Repo, Number);
+    });
+
+    /// <summary>Führt eine Aktion mit Sperre der Buttons aus und zeigt Fehler als Hinweis an.</summary>
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        try
+        {
+            await action();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(GitHubErrors.Describe(ex), Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static string ReviewLabel(string? state) => state switch
+    {
+        "APPROVED" => "hat genehmigt",
+        "CHANGES_REQUESTED" => "möchte Änderungen",
+        "DISMISSED" => "Review verworfen",
+        _ => "Review"
+    };
+
+    private static string CheckIcon(CheckState state) => state switch
+    {
+        CheckState.Success => Icons.Material.Filled.CheckCircle,
+        CheckState.Pending => Icons.Material.Filled.Pending,
+        CheckState.Failure => Icons.Material.Filled.Cancel,
+        _ => Icons.Material.Filled.RemoveCircleOutline
+    };
+
+    private static string CheckColor(CheckState state) => state switch
+    {
+        CheckState.Success => "#3fb950",
+        CheckState.Pending => "#d29922",
+        CheckState.Failure => "#f85149",
+        _ => "#8b949e"
+    };
+
+    private static string CheckSummary(CiStatus ci)
+    {
+        var failed = ci.Items.Count(i => i.State == CheckState.Failure);
+        var pending = ci.Items.Count(i => i.State == CheckState.Pending);
+        return ci.Overall switch
+        {
+            CheckState.Failure => $"{failed} von {ci.Items.Count} Checks fehlgeschlagen",
+            CheckState.Pending => $"{pending} von {ci.Items.Count} Checks laufen noch",
+            _ => $"Alle {ci.Items.Count} Checks erfolgreich"
+        };
+    }
+
+    private async Task UpdateBranchAsync()
+    {
+        if (_details is null)
+            return;
+
+        _busy = true;
+        try
+        {
+            var result = await Merges.UpdateBranchAsync(Owner, Repo, _details.Summary.Head, _details.Summary.Base);
+            Snackbar.Add(result switch
+            {
+                BranchUpdateResult.Updated => $"{_details.Summary.Head} ist jetzt auf dem Stand von {_details.Summary.Base}.",
+                BranchUpdateResult.UpToDate => "Der Branch ist bereits aktuell.",
+                _ => "Überschneidende Änderungen: Bitte auf GitHub unter „Resolve conflicts“ lösen."
+            }, result == BranchUpdateResult.Conflict ? Severity.Warning : Severity.Success);
+            await LoadAsync();
+            await Changed.InvokeAsync(false);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(GitHubErrors.Describe(ex), Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
     private async Task SetOpenAsync(bool open)
     {
         if (_details is null)
@@ -238,25 +432,4 @@
         }
     }
 
-    private void Toggle(string path)
-    {
-        if (!_expanded.Remove(path))
-            _expanded.Add(path);
-    }
-
-    private static string StatusLetter(string status) => status switch
-    {
-        "added" => "A",
-        "removed" => "D",
-        "renamed" => "R",
-        _ => "M"
-    };
-
-    private static string PatchClass(string line) => line switch
-    {
-        _ when line.StartsWith("@@") => "patch-hunk",
-        _ when line.StartsWith('+') => "patch-add",
-        _ when line.StartsWith('-') => "patch-del",
-        _ => ""
-    };
 }

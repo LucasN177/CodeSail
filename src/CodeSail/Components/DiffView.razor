@@ -1,6 +1,7 @@
 @* Zeigt den Unterschied zwischen dem Stand auf GitHub und der lokalen Fassung einer Datei (nur lesend). *@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject SettingsService Settings
 
 <StandaloneDiffEditor @ref="_diff" Id="codesail-diff" CssClass="codesail-editor"
                       ConstructionOptions="Options" OnDidInit="OnInitAsync" />
@@ -19,11 +20,11 @@
     private StandaloneDiffEditorConstructionOptions Options(StandaloneDiffEditor editor) => new()
     {
         AutomaticLayout = true,
-        Theme = "vs-dark",
+        Theme = SourceEditor.MonacoTheme(Settings),
         ReadOnly = true,
         OriginalEditable = false,
         RenderSideBySide = true,
-        FontSize = 14,
+        FontSize = Settings.Settings.FontSize,
         ScrollBeyondLastLine = false
     };
 

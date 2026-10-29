@@ -1,0 +1,71 @@
+@* Einzelner Commit im Hauptbereich: Nachricht, Autor, Eltern-Commits und geänderte Dateien mit Diff. *@
+@inject IGitHubService GitHub
+
+<div class="commit-view">
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="ma-4">@_error</MudAlert>
+    }
+    else if (_details is null)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else
+    {
+        var c = _details.Summary;
+        <header class="commit-section">
+            <MudText Typo="Typo.h6" Class="commit-heading">@c.Title</MudText>
+            @if (c.Body.Length > 0)
+            {
+                <pre class="commit-body">@c.Body</pre>
+            }
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mt-2">
+                <b>@c.Author</b>@(c.Date is { } d ? $" · {d.ToLocalTime():dd.MM.yyyy HH:mm}" : "") ·
+                <span class="diff-add">+@_details.Additions</span> <span class="diff-del">−@_details.Deletions</span> ·
+                @_details.Files.Count @(_details.Files.Count == 1 ? "Datei" : "Dateien")
+            </MudText>
+            <div class="d-flex align-center gap-2 flex-wrap mt-2">
+                <code class="commit-sha" title="Vollständige SHA">@c.Sha</code>
+                @foreach (var parent in _details.Parents)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.ArrowUpward"
+                               OnClick="() => OpenCommit.InvokeAsync(parent)">Eltern @parent[..7]</MudButton>
+                }
+                <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Custom.Brands.GitHub"
+                           Href="@_details.HtmlUrl" Target="_blank">Auf GitHub</MudButton>
+            </div>
+        </header>
+        <section class="commit-section">
+            <FileDiffList Files="_details.Files" Total="_details.Files.Count" />
+        </section>
+    }
+</div>
+
+@code {
+    private CommitDetails? _details;
+    private string? _error;
+    private string? _loaded;
+
+    [Parameter, EditorRequired] public string Owner { get; set; } = "";
+    [Parameter, EditorRequired] public string Repo { get; set; } = "";
+    [Parameter, EditorRequired] public string Sha { get; set; } = "";
+
+    [Parameter] public EventCallback<string> OpenCommit { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loaded == Sha)
+            return;
+        _loaded = Sha;
+        _details = null;
+        _error = null;
+        try
+        {
+            _details = await GitHub.GetCommitAsync(Owner, Repo, Sha);
+        }
+        catch (Exception ex)
+        {
+            _error = GitHubErrors.Describe(ex);
+        }
+    }
+}

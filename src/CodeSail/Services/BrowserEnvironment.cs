@@ -17,6 +17,14 @@ public sealed class BrowserEnvironment(IJSRuntime js) : IAsyncDisposable
 
     public event Action? UpdateReady;
 
+    /// <summary>Globales Tastenkürzel: "quickOpen" (Cmd+P) oder "search" (Cmd+Shift+F).</summary>
+    public event Action<string>? Shortcut;
+
+    public bool PrefersDark { get; private set; } = true;
+
+    /// <summary>Gerät mit Touchscreen, z. B. iPad (auch mit angeschlossener Tastatur).</summary>
+    public bool IsTouch { get; private set; }
+
     public async Task InitializeAsync()
     {
         if (_module is not null)
@@ -27,7 +35,22 @@ public sealed class BrowserEnvironment(IJSRuntime js) : IAsyncDisposable
         IsOnline = await _module.InvokeAsync<bool>("watchConnectivity", _selfRef);
         if (await _module.InvokeAsync<bool>("watchUpdates", _selfRef))
             OnUpdateAvailable();
+
+        var info = await _module.InvokeAsync<EnvironmentInfo>("environmentInfo");
+        (PrefersDark, IsTouch) = (info.PrefersDark, info.Touch);
+        await _module.InvokeVoidAsync("registerShortcuts", _selfRef);
     }
+
+    public async Task DownloadAsync(string fileName, byte[] content, string mimeType)
+    {
+        if (_module is not null)
+            await _module.InvokeVoidAsync("downloadFile", fileName, Convert.ToBase64String(content), mimeType);
+    }
+
+    [JSInvokable]
+    public void OnShortcut(string name) => Shortcut?.Invoke(name);
+
+    private sealed record EnvironmentInfo(bool PrefersDark, bool Touch);
 
     /// <summary>Aktiviert die neue Version und lädt die App neu.</summary>
     public async Task ApplyUpdateAsync()

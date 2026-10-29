@@ -112,6 +112,38 @@ export function resetPreviewScroll(iframe) {
     iframe.codesailScroll = 0;
 }
 
+// Geräteeigenschaften: Systemdesign und Touchscreen (für Design "System" und die Touch-Leiste)
+export function environmentInfo() {
+    return {
+        prefersDark: matchMedia("(prefers-color-scheme: dark)").matches,
+        touch: matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0
+    };
+}
+
+// Globale Tastenkürzel, die auch greifen, wenn der Editor nicht fokussiert ist.
+// Cmd/Strg+P würde sonst den Druckdialog öffnen.
+export function registerShortcuts(dotNetRef) {
+    addEventListener("keydown", e => {
+        if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+        const key = e.key.toLowerCase();
+        const name = key === "p" && !e.shiftKey ? "quickOpen"
+            : key === "f" && e.shiftKey ? "search"
+            : null;
+        if (!name) return;
+        e.preventDefault();
+        dotNetRef.invokeMethodAsync("OnShortcut", name);
+    }, true);
+}
+
+// Lädt eine Datei als Download herunter (z. B. Binärdateien aus dem Repository)
+export function downloadFile(fileName, base64, mimeType) {
+    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+    const link = Object.assign(document.createElement("a"), { href: url, download: fileName });
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 // Schmale Ansicht (iPad hochkant): Explorer liegt dann über dem Editor
 export function isNarrow() {
     return window.matchMedia("(max-width: 820px)").matches;

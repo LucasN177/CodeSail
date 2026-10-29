@@ -7,8 +7,9 @@
 @inject IFileCache Cache
 @inject IDialogService Dialogs
 @inject NavigationManager Nav
+@inject SettingsService Settings
 
-<MudThemeProvider IsDarkMode="true" />
+<MudThemeProvider IsDarkMode="Settings.IsDark" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -49,6 +50,7 @@
                      AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" aria-label="Konto">
                 <MudMenuItem Icon="@Icons.Custom.Brands.GitHub" Disabled="true">@Auth.Login</MudMenuItem>
                 <MudMenuItem Icon="@Icons.Material.Filled.Storage" Disabled="true">Offline-Speicher: @FormatUsage()</MudMenuItem>
+                <MudMenuItem Icon="@Icons.Material.Filled.Settings" OnClick="OpenSettingsAsync">Einstellungen</MudMenuItem>
                 <MudMenuItem Icon="@Icons.Material.Filled.Logout" OnClick="LogoutAsync">Abmelden</MudMenuItem>
             </MudMenu>
         }
@@ -75,8 +77,10 @@
         GitHub.RateLimitChanged += OnStateChanged;
         Browser.ConnectivityChanged += OnStateChanged;
         Browser.UpdateReady += OnStateChanged;
+        Settings.Changed += OnStateChanged;
 
         await Browser.InitializeAsync();
+        await Settings.LoadAsync(Browser.PrefersDark);
         await Auth.InitializeAsync();
 
         // Ohne diese Bitte darf Safari den Offline-Cache nach einigen Tagen ohne Nutzung löschen
@@ -112,6 +116,9 @@
         < 1024 * 1024 => $"{_usage / 1024.0:0.#} KB",
         _ => $"{_usage / (1024.0 * 1024):0.#} MB"
     };
+
+    private Task OpenSettingsAsync() =>
+        Dialogs.ShowAsync<SettingsDialog>("Einstellungen", new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
 
     private async Task ApplyUpdateAsync()
     {
@@ -159,5 +166,6 @@
         GitHub.RateLimitChanged -= OnStateChanged;
         Browser.ConnectivityChanged -= OnStateChanged;
         Browser.UpdateReady -= OnStateChanged;
+        Settings.Changed -= OnStateChanged;
     }
 }

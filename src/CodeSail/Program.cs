@@ -19,9 +19,12 @@ builder.Services.AddScoped<ITokenStore, BrowserTokenStore>();
 builder.Services.AddScoped<IGitHubService>(sp => new GitHubService(sp.GetRequiredService<ITokenStore>()));
 builder.Services.AddScoped<IFileCache, IndexedDbFileCache>();
 builder.Services.AddScoped<BrowserEnvironment>();
+builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<WorkspaceService>();
 builder.Services.AddScoped<CommitService>();
 builder.Services.AddScoped<PullRequestService>();
+builder.Services.AddScoped<SearchService>();
+builder.Services.AddScoped<MergeService>();
 builder.Services.AddScoped<PreviewService>();
 builder.Services.AddScoped<AuthState>();
 

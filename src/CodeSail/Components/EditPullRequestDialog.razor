@@ -1,0 +1,25 @@
+@* Titel und Beschreibung eines Pull Requests bearbeiten. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField @bind-Value="_title" Label="Titel" Variant="Variant.Outlined" Immediate="true" AutoFocus="true" Class="mb-2" />
+        <MudTextField @bind-Value="_body" Label="Beschreibung (Markdown)" Variant="Variant.Outlined" Lines="10" Immediate="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="() => Dialog.Cancel()">Abbrechen</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="string.IsNullOrWhiteSpace(_title)"
+                   OnClick="() => Dialog.Close(DialogResult.Ok((_title, _body)))">Speichern</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private string _title = "";
+    private string _body = "";
+
+    [CascadingParameter] public IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public string Title { get; set; } = "";
+    [Parameter] public string Body { get; set; } = "";
+
+    protected override void OnInitialized() => (_title, _body) = (Title, Body);
+}

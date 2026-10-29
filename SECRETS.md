@@ -37,6 +37,7 @@ Kein Secret nötig. Zum Testen in der App einen **Fine-grained Personal Access T
 - Permissions:
   - **Contents: Read and write** – Dateien lesen, committen, Branches anlegen
   - **Pull requests: Read and write** – nur nötig für den Reiter „Pull Requests“ (anzeigen, erstellen, mergen, schließen)
+  - **Commit statuses: Read** und **Checks: Read** – optional, nur für den CI-Status in Pull Requests
   - **Metadata: Read** – wird automatisch gesetzt
 
 Den Token nur in der laufenden App eingeben, nicht in Dateien wie `appsettings.json` speichern.

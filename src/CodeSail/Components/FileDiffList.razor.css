@@ -1,0 +1,66 @@
+.diff-file {
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 6px;
+    margin-bottom: 8px;
+    overflow: hidden;
+}
+
+.diff-file-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    min-height: 44px;
+    cursor: pointer;
+    background: var(--mud-palette-action-default-hover);
+    font-size: 0.875rem;
+}
+
+.diff-file-path {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.diff-file-status {
+    width: 16px;
+    text-align: center;
+    font-weight: 700;
+    font-family: monospace;
+}
+
+.diff-status-added { color: #3fb950; }
+.diff-status-removed { color: #f85149; }
+.diff-status-modified, .diff-status-changed { color: #d29922; }
+.diff-status-renamed { color: #58a6ff; }
+
+.diff-add { color: #3fb950; }
+.diff-del { color: #f85149; }
+
+.diff-patch {
+    margin: 0;
+    padding: 8px 0;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.45;
+    background: var(--mud-palette-background);
+}
+
+.diff-patch span {
+    display: block;
+    padding: 0 12px;
+    min-width: max-content;
+}
+
+.diff-patch .patch-add { background: rgba(63, 185, 80, 0.15); }
+.diff-patch .patch-del { background: rgba(248, 81, 73, 0.15); }
+.diff-patch .patch-hunk { color: #58a6ff; background: rgba(56, 139, 253, 0.08); }
+
+.diff-empty {
+    padding: 10px 12px;
+    color: var(--mud-palette-text-secondary);
+    font-size: 0.85rem;
+}

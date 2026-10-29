@@ -1,0 +1,216 @@
+@* Suche in allen Dateien des Branches (Cmd+Shift+F). *@
+@implements IDisposable
+@inject SearchService Search
+
+<form @onsubmit="RunAsync">
+    <MudTextField @ref="_input" @bind-Value="_query" Placeholder="In Dateien suchen…" Variant="Variant.Outlined" Margin="Margin.Dense"
+                  Immediate="true" Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                  spellcheck="false" autocapitalize="off" autocomplete="off" />
+</form>
+<div class="d-flex align-center gap-1 my-1">
+    <MudTooltip Text="Groß-/Kleinschreibung beachten">
+        <MudToggleIconButton @bind-Toggled="_matchCase" Icon="@Icons.Material.Filled.TextFields" ToggledIcon="@Icons.Material.Filled.TextFields"
+                             ToggledColor="Color.Primary" Size="Size.Small" aria-label="Groß-/Kleinschreibung beachten" />
+    </MudTooltip>
+    <MudTooltip Text="Nur ganze Wörter">
+        <MudToggleIconButton @bind-Toggled="_wholeWord" Icon="@Icons.Material.Filled.SpaceBar" ToggledIcon="@Icons.Material.Filled.SpaceBar"
+                             ToggledColor="Color.Primary" Size="Size.Small" aria-label="Nur ganze Wörter" />
+    </MudTooltip>
+    <MudTooltip Text="Regulärer Ausdruck">
+        <MudToggleIconButton @bind-Toggled="_regex" Icon="@Icons.Material.Filled.DataObject" ToggledIcon="@Icons.Material.Filled.DataObject"
+                             ToggledColor="Color.Primary" Size="Size.Small" aria-label="Regulärer Ausdruck" />
+    </MudTooltip>
+    <MudSpacer />
+    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="RunAsync"
+               Disabled="@(string.IsNullOrEmpty(_query) || _searching)">Suchen</MudButton>
+</div>
+
+@if (_error is not null)
+{
+    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">@_error</MudAlert>
+}
+
+@if (_downloading)
+{
+    <div class="mb-2">
+        <MudText Typo="Typo.caption">Lade Dateien … @_downloaded / @_downloadTotal</MudText>
+        <MudProgressLinear Color="Color.Primary" Value="@(_downloadTotal == 0 ? 0 : 100.0 * _downloaded / _downloadTotal)" />
+        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="() => _cancel?.Cancel()">Abbrechen</MudButton>
+    </div>
+}
+else if (_missing.Count > 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+        @_missing.Count @(_missing.Count == 1 ? "Datei wurde" : "Dateien wurden") noch nie geöffnet und
+        @(_missing.Count == 1 ? "fehlt" : "fehlen") in der Suche (ca. @FormatSize(_missing.Sum(e => e.Size ?? 0))).
+        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Inherit" Disabled="!Online" OnClick="DownloadAsync">
+            Alle laden
+        </MudButton>
+    </MudAlert>
+}
+
+@if (_searching)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (_result is { } result)
+{
+    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-1">
+        @result.TotalMatches @(result.TotalMatches == 1 ? "Treffer" : "Treffer") in @result.Files.Count @(result.Files.Count == 1 ? "Datei" : "Dateien")
+        (@result.SearchedFiles durchsucht)@(result.Truncated ? $" – nach {SearchService.MaxMatches} Treffern abgebrochen" : "")
+    </MudText>
+    @foreach (var file in result.Files)
+    {
+        var collapsed = _collapsed.Contains(file.Path);
+        <div class="search-file">
+            <div class="search-file-header" @onclick="() => ToggleFile(file.Path)" role="button" aria-expanded="@(!collapsed)">
+                <MudIcon Icon="@(collapsed ? Icons.Material.Filled.ChevronRight : Icons.Material.Filled.ExpandMore)" Size="Size.Small" />
+                <span class="search-file-name">@FileName(file.Path)</span>
+                <span class="search-file-folder">@Folder(file.Path)</span>
+                <span class="search-count">@file.Matches.Count</span>
+            </div>
+            @if (!collapsed)
+            {
+                @foreach (var match in file.Matches)
+                {
+                    <div class="search-match" @onclick="() => OpenAt.InvokeAsync((file.Path, match.Line, match.Column))"
+                         title="@($"Zeile {match.Line}")">
+                        <span class="search-line">@match.Line</span>
+                        <span class="search-preview">@Before(match)<mark>@Hit(match)</mark>@After(match)</span>
+                    </div>
+                }
+            }
+        </div>
+    }
+}
+
+@code {
+    private MudTextField<string>? _input;
+    private string _query = "";
+    private bool _matchCase;
+    private bool _wholeWord;
+    private bool _regex;
+    private bool _searching;
+    private string? _error;
+    private SearchResult? _result;
+    private IReadOnlyList<TreeEntry> _missing = [];
+    private readonly HashSet<string> _collapsed = [];
+    private bool _downloading;
+    private int _downloaded;
+    private int _downloadTotal;
+    private CancellationTokenSource? _cancel;
+    private string? _context;
+
+    [Parameter, EditorRequired] public string Owner { get; set; } = "";
+    [Parameter, EditorRequired] public string Repo { get; set; } = "";
+    [Parameter, EditorRequired] public string Branch { get; set; } = "";
+    [Parameter, EditorRequired] public RepoTree Tree { get; set; } = default!;
+    [Parameter] public bool Online { get; set; } = true;
+
+    [Parameter] public EventCallback<(string Path, int Line, int Column)> OpenAt { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Anderer Branch: Ergebnisse passen nicht mehr
+        var context = $"{Owner}/{Repo}@{Branch}:{Tree.Sha}";
+        if (_context == context)
+            return;
+        _context = context;
+        _result = null;
+        _missing = await Search.MissingFilesAsync(Owner, Repo, Branch, Tree);
+    }
+
+    public async Task FocusAsync()
+    {
+        if (_input is not null)
+            await _input.FocusAsync();
+    }
+
+    private async Task RunAsync()
+    {
+        if (string.IsNullOrEmpty(_query))
+            return;
+
+        _searching = true;
+        _error = null;
+        try
+        {
+            _result = await Search.SearchAsync(Owner, Repo, Branch, Tree, new SearchOptions(_query, _matchCase, _wholeWord, _regex));
+            _missing = await Search.MissingFilesAsync(Owner, Repo, Branch, Tree);
+            _collapsed.Clear();
+        }
+        catch (ArgumentException)
+        {
+            _error = "Ungültiger regulärer Ausdruck.";
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            _error = "Der reguläre Ausdruck ist zu aufwendig. Vereinfache ihn.";
+        }
+        finally
+        {
+            _searching = false;
+        }
+    }
+
+    private async Task DownloadAsync()
+    {
+        var files = _missing;
+        _cancel = new CancellationTokenSource();
+        _downloading = true;
+        _downloaded = 0;
+        _downloadTotal = files.Count;
+        try
+        {
+            var progress = new Progress<int>(count =>
+            {
+                _downloaded = count;
+                StateHasChanged();
+            });
+            await Search.DownloadAsync(Owner, Repo, Branch, files, progress, _cancel.Token);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = GitHubErrors.Describe(ex);
+        }
+        finally
+        {
+            _downloading = false;
+            _missing = await Search.MissingFilesAsync(Owner, Repo, Branch, Tree);
+        }
+
+        if (!string.IsNullOrEmpty(_query))
+            await RunAsync();
+    }
+
+    private void ToggleFile(string path)
+    {
+        if (!_collapsed.Remove(path))
+            _collapsed.Add(path);
+    }
+
+    private static string Before(SearchMatch m) => m.Preview[..Math.Clamp(m.PreviewStart, 0, m.Preview.Length)];
+
+    private static string Hit(SearchMatch m)
+    {
+        var start = Math.Clamp(m.PreviewStart, 0, m.Preview.Length);
+        return m.Preview.Substring(start, Math.Min(m.Length, m.Preview.Length - start));
+    }
+
+    private static string After(SearchMatch m)
+    {
+        var end = Math.Clamp(m.PreviewStart + m.Length, 0, m.Preview.Length);
+        return m.Preview[end..];
+    }
+
+    private static string FileName(string path) => path[(path.LastIndexOf('/') + 1)..];
+
+    private static string Folder(string path) => path.Contains('/') ? path[..path.LastIndexOf('/')] : "";
+
+    private static string FormatSize(long bytes) => bytes < 1024 * 1024 ? $"{Math.Max(1, bytes / 1024)} KB" : $"{bytes / (1024.0 * 1024):0.#} MB";
+
+    public void Dispose() => _cancel?.Cancel();
+}

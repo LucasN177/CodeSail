@@ -34,8 +34,9 @@ html, body {
 /* ---- Startbildschirm (vor dem Laden von Blazor) ----
    Blazor setzt --blazor-load-percentage(-text) auf <html>, während die App geladen wird. */
 
+/* Vor dem Laden von MudBlazor dunkel (passend zum Startbildschirm), danach die Farbe des gewählten Designs */
 body {
-    background: #1e1e1e;
+    background: var(--mud-palette-background, #1e1e1e);
 }
 
 .splash {

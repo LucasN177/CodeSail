@@ -1,0 +1,101 @@
+@* Zeigt Bilder (und PDFs) aus dem Repository an; andere Binärdateien lassen sich herunterladen. *@
+@inject IGitHubService GitHub
+@inject BrowserEnvironment Browser
+
+<div class="binary-view">
+    <div class="binary-header">
+        <MudText Typo="Typo.subtitle2" Class="text-truncate" title="@Path">@Path</MudText>
+        @if (_bytes is not null)
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary ml-2">@FormatSize(_bytes.Length)</MudText>
+        }
+        <MudSpacer />
+        @if (Kind == BinaryKind.Image && _bytes is not null)
+        {
+            <MudTooltip Text="@(_actualSize ? "In Fenster einpassen" : "Originalgröße")">
+                <MudIconButton Icon="@(_actualSize ? Icons.Material.Filled.FitScreen : Icons.Material.Filled.ZoomIn)" Size="Size.Small"
+                               OnClick="() => _actualSize = !_actualSize" aria-label="Zoom umschalten" />
+            </MudTooltip>
+        }
+        <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Download" Disabled="_bytes is null" OnClick="DownloadAsync">Herunterladen</MudButton>
+    </div>
+
+    <div class="binary-body @(Kind == BinaryKind.Image ? "checker" : "")">
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Warning" Class="ma-4">@_error</MudAlert>
+        }
+        else if (_bytes is null)
+        {
+            <MudProgressCircular Indeterminate="true" Color="Color.Primary" />
+        }
+        else if (Kind == BinaryKind.Image)
+        {
+            <img src="@DataUrl" alt="@Path" class="@(_actualSize ? "actual" : "fit")" />
+        }
+        else if (Kind == BinaryKind.Pdf)
+        {
+            <object data="@DataUrl" type="application/pdf" class="binary-pdf">
+                <MudText Class="pa-4">Dieser Browser zeigt PDFs nicht eingebettet an. Lade die Datei herunter.</MudText>
+            </object>
+        }
+        else
+        {
+            <div class="binary-info">
+                <MudIcon Icon="@Icons.Material.Outlined.InsertDriveFile" Size="Size.Large" />
+                <MudText>Binärdatei – kann nicht im Editor angezeigt werden.</MudText>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private byte[]? _bytes;
+    private string? _error;
+    private bool _actualSize;
+    private string? _loadedSha;
+
+    [Parameter, EditorRequired] public string Owner { get; set; } = "";
+    [Parameter, EditorRequired] public string Repo { get; set; } = "";
+    [Parameter, EditorRequired] public string Path { get; set; } = "";
+    [Parameter, EditorRequired] public string? BlobSha { get; set; }
+
+    private BinaryKind Kind => FileKinds.KindOf(Path);
+
+    private string DataUrl => $"data:{PreviewBuilder.MimeType(Path)};base64,{Convert.ToBase64String(_bytes!)}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedSha == BlobSha)
+            return;
+        _loadedSha = BlobSha;
+        _bytes = null;
+        _error = null;
+        _actualSize = false;
+
+        if (BlobSha is null)
+        {
+            _error = "Die Datei ist (noch) nicht auf GitHub.";
+            return;
+        }
+        try
+        {
+            _bytes = await GitHub.GetBlobAsync(Owner, Repo, BlobSha);
+        }
+        catch (Exception ex)
+        {
+            _error = GitHubErrors.Describe(ex);
+        }
+    }
+
+    private Task DownloadAsync() =>
+        _bytes is null ? Task.CompletedTask
+            : Browser.DownloadAsync(Path[(Path.LastIndexOf('/') + 1)..], _bytes, PreviewBuilder.MimeType(Path));
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:0.#} KB",
+        _ => $"{bytes / (1024.0 * 1024):0.#} MB"
+    };
+}

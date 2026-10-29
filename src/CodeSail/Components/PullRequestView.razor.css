@@ -33,75 +33,72 @@
     color: #f85149;
 }
 
-.pr-file {
-    border: 1px solid var(--mud-palette-lines-default);
-    border-radius: 6px;
-    margin-bottom: 8px;
-    overflow: hidden;
-}
+/* Dateien und Diffs: siehe FileDiffList.razor.css */
 
-.pr-file-header {
-    display: flex;
+.pr-ci-summary {
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    min-height: 44px;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 16px;
     cursor: pointer;
-    background: rgba(255, 255, 255, 0.03);
     font-size: 0.875rem;
 }
 
-.pr-file-path {
+.pr-ci-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 4px 4px 10px;
+    font-size: 0.85rem;
+}
+
+.pr-ci-name {
+    white-space: nowrap;
+}
+
+.pr-ci-desc {
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-.pr-file-status {
-    width: 16px;
-    text-align: center;
-    font-weight: 700;
-    font-family: monospace;
+.pr-comment {
+    border: 1px solid var(--mud-palette-lines-default);
+    border-radius: 6px;
+    margin-bottom: 8px;
 }
 
-.pr-status-added { color: #3fb950; }
-.pr-status-removed { color: #f85149; }
-.pr-status-modified, .pr-status-changed { color: #d29922; }
-.pr-status-renamed { color: #58a6ff; }
-
-.pr-patch {
-    margin: 0;
-    padding: 8px 0;
-    overflow-x: auto;
-    font-size: 12.5px;
-    line-height: 1.45;
-    background: #1b1b1b;
-}
-
-.pr-patch span {
-    display: block;
-    padding: 0 12px;
-    min-width: max-content;
-}
-
-.pr-patch .patch-add {
-    background: rgba(63, 185, 80, 0.15);
-}
-
-.pr-patch .patch-del {
-    background: rgba(248, 81, 73, 0.15);
-}
-
-.pr-patch .patch-hunk {
-    color: #58a6ff;
-    background: rgba(56, 139, 253, 0.08);
-}
-
-.pr-patch-empty {
-    padding: 10px 12px;
-    color: var(--mud-palette-text-secondary);
+.pr-comment-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
     font-size: 0.85rem;
+    background: var(--mud-palette-action-default-hover);
 }
+
+.pr-comment-body {
+    padding: 8px 10px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.9rem;
+}
+
+.pr-comment-path {
+    font-size: 0.78rem;
+}
+
+.pr-review-badge {
+    font-size: 0.75rem;
+    padding: 0 8px;
+    border-radius: 10px;
+    border: 1px solid var(--mud-palette-lines-default);
+}
+
+.review-approved { color: #3fb950; border-color: #3fb950; }
+.review-changes_requested { color: #f85149; border-color: #f85149; }

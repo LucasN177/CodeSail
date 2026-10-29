@@ -1,0 +1,63 @@
+@* Tasten, die der Bildschirmtastatur des iPads fehlen. Löst Monaco-Aktionen im Editor aus. *@
+
+<div class="touch-toolbar" role="toolbar" aria-label="Editor-Tasten">
+    @foreach (var button in Buttons)
+    {
+        @if (button.Separator)
+        {
+            <span class="touch-separator"></span>
+        }
+        else
+        {
+            <button type="button" class="touch-key" title="@button.Label" aria-label="@button.Label"
+                    @onclick="() => Action.InvokeAsync(button)">
+                @if (button.Icon is not null)
+                {
+                    <MudIcon Icon="@button.Icon" Size="Size.Small" />
+                }
+                else
+                {
+                    <span>@button.Text</span>
+                }
+            </button>
+        }
+    }
+</div>
+
+@code {
+    /// <param name="ActionId">Monaco-Aktion bzw. -Befehl für <c>editor.trigger</c>.</param>
+    public sealed record ToolbarButton(string Label, string? ActionId = null, string? Icon = null, string? Text = null,
+        object? Payload = null, bool Separator = false);
+
+    public static readonly IReadOnlyList<ToolbarButton> Buttons =
+    [
+        new("Rückgängig", "undo", Icons.Material.Filled.Undo),
+        new("Wiederholen", "redo", Icons.Material.Filled.Redo),
+        new("", Separator: true),
+        new("Tab (einrücken)", "tab", Text: "⇥"),
+        new("Ausrücken", "editor.action.outdentLines", Text: "⇤"),
+        new("Esc", "closeFindWidget", Text: "esc"),
+        new("", Separator: true),
+        new("Cursor nach links", "cursorLeft", Icons.Material.Filled.KeyboardArrowLeft),
+        new("Cursor nach rechts", "cursorRight", Icons.Material.Filled.KeyboardArrowRight),
+        new("Cursor nach oben", "cursorUp", Icons.Material.Filled.KeyboardArrowUp),
+        new("Cursor nach unten", "cursorDown", Icons.Material.Filled.KeyboardArrowDown),
+        new("", Separator: true),
+        new("Suchen", "actions.find", Icons.Material.Filled.Search),
+        new("Suchen und ersetzen", "editor.action.startFindReplaceAction", Icons.Material.Filled.FindReplace),
+        new("Kommentar umschalten", "editor.action.commentLine", Text: "//"),
+        new("Vorschläge anzeigen", "editor.action.triggerSuggest", Icons.Material.Filled.AutoAwesome),
+        new("Dokument formatieren", "editor.action.formatDocument", Icons.Material.Filled.FormatAlignLeft),
+        new("", Separator: true),
+        new("Klammer {", "type", Text: "{", Payload: new { text = "{" }),
+        new("Klammer }", "type", Text: "}", Payload: new { text = "}" }),
+        new("Klammer [", "type", Text: "[", Payload: new { text = "[" }),
+        new("Klammer ]", "type", Text: "]", Payload: new { text = "]" }),
+        new("Kleiner als", "type", Text: "<", Payload: new { text = "<" }),
+        new("Größer als", "type", Text: ">", Payload: new { text = ">" }),
+        new("Gleich", "type", Text: "=", Payload: new { text = "=" }),
+        new("Semikolon", "type", Text: ";", Payload: new { text = ";" })
+    ];
+
+    [Parameter] public EventCallback<ToolbarButton> Action { get; set; }
+}

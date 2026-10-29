@@ -1,0 +1,103 @@
+@* Commits eines Branches (optional nur einer Datei), neueste zuerst, seitenweise nachladbar. *@
+@inject IGitHubService GitHub
+
+@if (!Online && _commits.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true">Der Verlauf braucht eine Verbindung zu GitHub.</MudAlert>
+}
+else if (_error is not null)
+{
+    <MudAlert Severity="Severity.Error" Dense="true">
+        @_error
+        <MudButton Variant="Variant.Text" Color="Color.Inherit" Size="Size.Small" OnClick="ReloadAsync">Erneut versuchen</MudButton>
+    </MudAlert>
+}
+else
+{
+    @if (_commits.Count == 0 && !_loading)
+    {
+        <MudText Typo="Typo.body2" Class="pa-2 mud-text-secondary">Keine Commits gefunden.</MudText>
+    }
+    <MudList T="string" Dense="true">
+        @foreach (var commit in _commits)
+        {
+            <MudListItem T="string" Value="commit.Sha" OnClick="() => Selected.InvokeAsync(commit)"
+                         Class="@(commit.Sha == SelectedSha ? "mud-selected-item" : "")">
+                <MudText Typo="Typo.body2" Class="commit-title">@commit.Title</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block text-truncate">
+                    <code>@commit.ShortSha</code> · @commit.Author@(commit.Date is { } d ? $" · {TimeFormat.Relative(d, DateTimeOffset.UtcNow)}" : "")
+                </MudText>
+            </MudListItem>
+        }
+    </MudList>
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else if (_hasMore)
+    {
+        <MudButton Variant="Variant.Text" Size="Size.Small" FullWidth="true" OnClick="LoadMoreAsync" Disabled="!Online">Ältere Commits laden</MudButton>
+    }
+}
+
+@code {
+    private const int PageSize = 30;
+
+    private List<CommitSummary> _commits = [];
+    private int _page;
+    private bool _hasMore;
+    private bool _loading;
+    private string? _error;
+    private string? _loadedFor;
+
+    [Parameter, EditorRequired] public string Owner { get; set; } = "";
+    [Parameter, EditorRequired] public string Repo { get; set; } = "";
+    [Parameter, EditorRequired] public string Branch { get; set; } = "";
+
+    /// <summary>Nur Commits, die diese Datei geändert haben.</summary>
+    [Parameter] public string? Path { get; set; }
+
+    /// <summary>Aktueller Commit des Branches; ändert er sich (z. B. nach einem Commit), wird neu geladen.</summary>
+    [Parameter] public string? HeadSha { get; set; }
+
+    [Parameter] public bool Online { get; set; } = true;
+    [Parameter] public string? SelectedSha { get; set; }
+    [Parameter] public EventCallback<CommitSummary> Selected { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = $"{Owner}/{Repo}@{Branch}:{Path}:{HeadSha}";
+        if (_loadedFor == key || !Online)
+            return;
+        _loadedFor = key;
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        _commits = [];
+        _page = 0;
+        await LoadMoreAsync();
+    }
+
+    private async Task LoadMoreAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var page = await GitHub.GetCommitsAsync(Owner, Repo, Branch, Path, _page + 1);
+            _page++;
+            _commits.AddRange(page);
+            _hasMore = page.Count == PageSize;
+        }
+        catch (Exception ex)
+        {
+            _error = GitHubErrors.Describe(ex);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

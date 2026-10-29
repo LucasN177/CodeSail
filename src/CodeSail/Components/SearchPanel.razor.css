@@ -1,0 +1,68 @@
+.search-file {
+    margin-bottom: 4px;
+}
+
+.search-file-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 2px;
+    min-height: 36px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.search-file-name {
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.search-file-folder {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.75rem;
+    color: var(--mud-palette-text-secondary);
+}
+
+.search-count {
+    font-size: 0.7rem;
+    padding: 0 6px;
+    border-radius: 8px;
+    background: var(--mud-palette-action-default-hover);
+}
+
+.search-match {
+    display: flex;
+    gap: 8px;
+    padding: 4px 4px 4px 24px;
+    min-height: 32px;
+    cursor: pointer;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.78rem;
+}
+
+.search-match:hover {
+    background: var(--mud-palette-action-default-hover);
+}
+
+.search-line {
+    flex: 0 0 auto;
+    min-width: 28px;
+    text-align: right;
+    color: var(--mud-palette-text-secondary);
+}
+
+.search-preview {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: pre;
+}
+
+.search-preview mark {
+    background: rgba(234, 179, 8, 0.4);
+    color: inherit;
+    border-radius: 2px;
+}

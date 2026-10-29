@@ -1,6 +1,7 @@
 @* Monaco-Editor mit einem Modell pro Datei, damit Undo-Verlauf und Cursor beim Tab-Wechsel erhalten bleiben. *@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject SettingsService Settings
 
 <StandaloneCodeEditor @ref="_editor" Id="codesail-editor" CssClass="codesail-editor"
                       ConstructionOptions="Options" OnDidInit="OnEditorInitAsync"
@@ -30,18 +31,51 @@
     private StandaloneEditorConstructionOptions Options(StandaloneCodeEditor editor) => new()
     {
         AutomaticLayout = true,
-        Theme = "vs-dark",
-        FontSize = 14,
-        Minimap = new EditorMinimapOptions { Enabled = false },
+        Theme = MonacoTheme(Settings),
+        FontSize = Settings.Settings.FontSize,
+        WordWrap = Settings.Settings.WordWrap ? "on" : "off",
+        Minimap = new EditorMinimapOptions { Enabled = Settings.Settings.Minimap },
         ScrollBeyondLastLine = false,
         RenderWhitespace = "selection",
         // Größere Scrollbalken lassen sich auf dem Touchscreen besser greifen
         Scrollbar = new EditorScrollbarOptions { VerticalScrollbarSize = 14, HorizontalScrollbarSize = 14 }
     };
 
+    public static string MonacoTheme(SettingsService settings) => settings.IsDark ? "vs-dark" : "vs";
+
+    private void OnSettingsChanged() => InvokeAsync(ApplySettingsAsync);
+
+    private async Task ApplySettingsAsync()
+    {
+        if (_editor is null)
+            return;
+        var s = Settings.Settings;
+        await _editor.UpdateOptions(new EditorUpdateOptions
+        {
+            FontSize = s.FontSize,
+            WordWrap = s.WordWrap ? "on" : "off",
+            Minimap = new EditorMinimapOptions { Enabled = s.Minimap }
+        });
+        // Das Design gilt für alle Monaco-Editoren der Seite, auch die Diff-Ansicht
+        await Global.SetTheme(JS, MonacoTheme(Settings));
+    }
+
+    /// <summary>
+    /// Führt eine Editor-Aktion aus, z. B. "undo", "redo", "actions.find", "tab" (für die Touch-Leiste),
+    /// und gibt dem Editor danach den Fokus zurück.
+    /// </summary>
+    public async Task RunActionAsync(string actionId, object? payload = null)
+    {
+        if (_editor is null || File is null)
+            return;
+        await _editor.Focus();
+        await _editor.Trigger("codesail", actionId, payload);
+    }
+
     private async Task OnEditorInitAsync()
     {
         _initialized = true;
+        Settings.Changed += OnSettingsChanged;
         await _editor!.AddCommand((int)KeyMod.CtrlCmd | (int)KeyCode.KeyS, _ =>
             InvokeAsync(async () =>
             {
@@ -148,6 +182,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        Settings.Changed -= OnSettingsChanged;
         _autosave?.Cancel();
         try
         {

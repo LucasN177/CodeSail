@@ -135,6 +135,18 @@ Die Seitenleiste hat vier Reiter (als Symbole mit Tooltip, damit sie in 320 px p
 - **Grenzen:** Kommentare und Reviews, Status-Checks (CI) und das Bearbeiten von Titel/Beschreibung sind nicht enthalten; dafür gibt es „Auf GitHub“. Bei mehr als 100 geänderten Dateien zeigt die Ansicht nur die ersten 100.
 - **Token-Rechte:** Lesen und Mergen von PRs braucht *Pull requests: Read and write*. Branches anlegen, umbenennen und löschen braucht *Contents: Read and write*. Das Umbenennen erfordert auf GitHub außerdem Admin-Rechte am Repository, wenn es der Standard-Branch ist.
 
+## Phase 3d – Alltagslücken ✅ (umgesetzt, Test mit echtem Token offen)
+
+Die Seitenleiste hat jetzt sechs Symbol-Reiter: Dateien, Suche, Änderungen, Verlauf, Branches, Pull Requests.
+
+- **Editor-Komfort:** Einstellungsdialog im Kontomenü (`SettingsService`, gespeichert im localStorage): Schriftgröße, Zeilenumbruch, Minimap, Design Dunkel/Hell/System (gilt für MudBlazor und Monaco). **Cmd+P** öffnet die Schnellsuche (`QuickOpenDialog`, unscharfe Suche über `FuzzyMatcher`, bevorzugt Wortanfänge im Dateinamen). **Touch-Leiste** (`TouchToolbar`, automatisch bei Touchscreen) mit Rückgängig/Wiederholen, Tab/Ausrücken, Esc, Pfeiltasten, Suchen/Ersetzen, Kommentar, Vorschläge, Formatieren und Klammern. Cmd+P und Cmd+Shift+F fängt ein globaler Listener ab, sie greifen also auch außerhalb des Editors.
+- **Bilder und Binärdateien** (`BinaryView`): Bilder mit Einpassen/Originalgröße auf Schachbrett, PDFs eingebettet, alles andere zum Herunterladen.
+- **Suche in allen Dateien** (`SearchService`, `SearchPanel`): durchsucht die lokalen Kopien des Branches, inklusive nicht committeter und neuer Dateien, auch offline; Optionen Groß/Klein, ganze Wörter, regulärer Ausdruck. Dateien, die noch nie geöffnet wurden, zählt die Suche und lädt sie auf Wunsch gesammelt nach (6 parallel, abbrechbar). Danach liegen sie im Offline-Cache. Binärformate und Dateien über 1 MB werden übersprungen, nach 2.000 Treffern ist Schluss.
+- **Verlauf:** Reiter mit den Commits des Branches (`CommitList`, seitenweise), Commit-Ansicht mit Nachricht, Eltern und Diff (`CommitView`, gemeinsame `FileDiffList` mit den PRs), „Verlauf dieser Datei“ und „Zeilenherkunft (Blame)“ im Dateimenü. Blame läuft über die GraphQL-API, da REST keines anbietet.
+- **Konflikte zusammenführen** (`ThreeWayMerge`, `MergeService`): Meldet der Commit einen Konflikt, bietet die App „Zusammenführen“ an. Zeilenbasierter Drei-Wege-Merge (Myers-Diff) zwischen dem Ausgangsstand, der lokalen Fassung und dem neuen Stand auf GitHub. Getrennte Änderungen werden kombiniert und direkt committet. Überschneidungen erhalten Git-Konfliktmarkierungen, der Editor springt zur ersten, und ein Commit mit verbliebenen Markierungen wird abgelehnt. Auf einer Seite neu angelegte oder gelöschte Dateien bleiben manuell zu entscheiden.
+- **Branch aktualisieren:** „Mit main aktualisieren“ im Branches-Reiter bzw. „Branch aktualisieren“ in einem PR, der hinter seinem Ziel liegt (Merge-API von GitHub). Bei Überschneidungen verweist die App auf „Resolve conflicts“ auf GitHub; ein lokaler Merge zweier Branches ist nicht umgesetzt.
+- **Pull Requests vertieft:** Titel/Beschreibung bearbeiten, CI-Status (Status-Checks und Check-Runs, aufklappbar, fehlende Token-Rechte werden genannt statt als Fehler gezeigt), Unterhaltung aus Kommentaren, Reviews und Zeilenkommentaren (als reiner Text, nicht als HTML), Kommentieren, Genehmigen, Änderungen anfordern. Zeilenkommentare direkt im Diff zu schreiben ist nicht enthalten.
+
 ## Phase 4 – Online-Compiler (4A umgesetzt, 4B geplant)
 
 ### Ziel und Umfang

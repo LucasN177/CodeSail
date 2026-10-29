@@ -1,0 +1,79 @@
+@* Geänderte Dateien mit aufklappbarem Unified Diff (für Pull Requests und Commits). *@
+
+@if (Total > Files.Count)
+{
+    <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-1">
+        Angezeigt werden die ersten @Files.Count von @Total Dateien.
+    </MudText>
+}
+@foreach (var file in Files)
+{
+    var open = _expanded.Contains(file.Path);
+    <div class="diff-file">
+        <div class="diff-file-header" @onclick="() => Toggle(file.Path)" role="button" aria-expanded="@open">
+            <MudIcon Icon="@(open ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)" Size="Size.Small" />
+            <span class="diff-file-status diff-status-@file.Status">@StatusLetter(file.Status)</span>
+            <span class="diff-file-path" title="@file.Path">
+                @if (file.PreviousPath is { } previous) { <span class="mud-text-secondary">@previous → </span> }
+                @file.Path
+            </span>
+            <span class="diff-add">+@file.Additions</span>
+            <span class="diff-del">−@file.Deletions</span>
+        </div>
+        @if (open)
+        {
+            @if (file.Patch is null)
+            {
+                <div class="diff-empty">Kein Diff verfügbar (Binärdatei oder zu groß). Auf GitHub ansehen.</div>
+            }
+            else
+            {
+                <pre class="diff-patch">@foreach (var line in file.Patch.Split('\n')){<span class="@PatchClass(line)">@line
+</span>}</pre>
+            }
+        }
+    </div>
+}
+
+@code {
+    private readonly HashSet<string> _expanded = [];
+    private IReadOnlyList<PullRequestFile>? _shown;
+
+    [Parameter, EditorRequired] public IReadOnlyList<PullRequestFile> Files { get; set; } = [];
+
+    /// <summary>Gesamtzahl laut GitHub; die API liefert höchstens 100 Dateien bzw. 3000 Zeilen Diff.</summary>
+    [Parameter] public int Total { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_shown, Files))
+            return;
+        _shown = Files;
+        _expanded.Clear();
+        // Kleine Änderungen direkt aufgeklappt zeigen
+        if (Files.Count <= 3)
+            _expanded.UnionWith(Files.Select(f => f.Path));
+    }
+
+    private void Toggle(string path)
+    {
+        if (!_expanded.Remove(path))
+            _expanded.Add(path);
+    }
+
+    public static string StatusLetter(string status) => status switch
+    {
+        "added" => "A",
+        "removed" => "D",
+        "renamed" => "R",
+        _ => "M"
+    };
+
+    public static string PatchClass(string line) => line switch
+    {
+        _ when line.StartsWith("@@") => "patch-hunk",
+        _ when line.StartsWith('+') => "patch-add",
+        _ when line.StartsWith('-') => "patch-del",
+        _ => ""
+    };
+}

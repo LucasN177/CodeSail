@@ -3,11 +3,13 @@
 @inject WorkspaceService RepoData
 @inject CommitService Commits
 @inject PullRequestService PullRequests
+@inject MergeService Merges
 @inject BrowserEnvironment Browser
 @inject NavigationManager Nav
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 @inject IJSRuntime JS
+@inject SettingsService Settings
 
 <PageTitle>CodeSail – @(ActiveFile?.Name ?? $"{Owner}/{Name}")</PageTitle>
 
@@ -73,7 +75,7 @@
             {
                 @* Vier Reiter passen in der schmalen Seitenleiste nur als Symbole; der Name steht im Tooltip *@
                 <MudTabs Elevation="0" Rounded="false" KeepPanelsAlive="true" Centered="true" @bind-ActivePanelIndex="_sidePanel"
-                         TabPanelsClass="pt-2" MinimumTabWidth="60px">
+                         TabPanelsClass="pt-2" MinimumTabWidth="48px">
                     <MudTabPanel Icon="@Icons.Material.Outlined.Folder" ToolTip="Dateien">
                         @if (_displayTree.Truncated)
                         {
@@ -85,11 +87,26 @@
                                    OnClick="NewFileAsync" Class="mb-1">Neue Datei</MudButton>
                         <FileExplorer Tree="_displayTree" DirtyPaths="DirtyPaths" FileSelected="OpenFileAsync" />
                     </MudTabPanel>
+                    <MudTabPanel Icon="@Icons.Material.Filled.Search" ToolTip="Suche (Cmd+Shift+F)">
+                        @if (_branch is not null)
+                        {
+                            <SearchPanel @ref="_searchPanel" Owner="@Owner" Repo="@Name" Branch="@_branch.Name" Tree="_displayTree"
+                                         Online="Browser.IsOnline" OpenAt="OpenSearchResultAsync" />
+                        }
+                    </MudTabPanel>
                     <MudTabPanel Icon="@Icons.Material.Outlined.Difference" ToolTip="Änderungen"
                                  BadgeData="@(_changes.Count > 0 ? _changes.Count : null)" BadgeColor="Color.Warning">
                         <ChangesPanel @ref="_changesPanel" Changes="_changes" Branch="@(_branch?.Name ?? "")"
                                       SelectedKey="_diffKey" Online="Browser.IsOnline" Busy="_committing"
                                       Selected="ShowDiff" Discard="DiscardAsync" Commit="CommitAsync" />
+                    </MudTabPanel>
+                    <MudTabPanel Icon="@Icons.Material.Filled.History" ToolTip="Verlauf">
+                        @if (_branch is not null)
+                        {
+                            <CommitList Owner="@Owner" Repo="@Name" Branch="@_branch.Name" HeadSha="@_branch.CommitSha"
+                                        Online="Browser.IsOnline" SelectedSha="@((_mainView as CommitMainView)?.Sha)"
+                                        Selected="c => ShowMainViewAsync(new CommitMainView(c.Sha))" />
+                        }
                     </MudTabPanel>
                     <MudTabPanel Icon="@Icons.Material.Filled.AccountTree" ToolTip="Branches">
                         @if (_branches is { Count: > 0 } && _branch is not null)
@@ -98,13 +115,13 @@
                                            LocalChanges="_localCounts" Online="Browser.IsOnline" Busy="_committing"
                                            Switch="OnBranchChanged" CreateFrom="CreateBranchFromAsync" Compare="CompareBranchAsync"
                                            CreatePullRequest="b => CreatePullRequestAsync(b.Name)"
-                                           Rename="RenameBranchAsync" Delete="DeleteBranchAsync" />
+                                           Rename="RenameBranchAsync" Delete="DeleteBranchAsync" UpdateFromDefault="UpdateBranchFromDefaultAsync" />
                         }
                     </MudTabPanel>
                     <MudTabPanel Icon="@Icons.Material.Filled.CallMerge" ToolTip="Pull Requests"
                                  BadgeData="@(_openPrCount > 0 ? _openPrCount : null)" BadgeColor="Color.Success">
                         <PullRequestsPanel @ref="_prPanel" Owner="@Owner" Repo="@Name" Online="Browser.IsOnline"
-                                           SelectedNumber="_prNumber" Selected="pr => ShowPullRequestAsync(pr.Number)"
+                                           SelectedNumber="@((_mainView as PullRequestMainView)?.Number)" Selected="pr => ShowPullRequestAsync(pr.Number)"
                                            Create="() => CreatePullRequestAsync(_branch?.Name)"
                                            OpenCountChanged="count => _openPrCount = count" />
                     </MudTabPanel>
@@ -117,21 +134,25 @@
         <div class="editor-toolbar">
             <MudIconButton Icon="@(_explorerOpen ? Icons.Material.Filled.MenuOpen : Icons.Material.Filled.Menu)"
                            OnClick="() => _explorerOpen = !_explorerOpen" aria-label="Seitenleiste umschalten" />
+            <MudTooltip Text="Datei öffnen (Cmd+P)">
+                <MudIconButton Icon="@Icons.Material.Filled.ManageSearch" OnClick="QuickOpenAsync" Disabled="@(_displayTree is null)"
+                               aria-label="Datei öffnen" />
+            </MudTooltip>
 
             <div class="tabs" role="tablist">
-                @if (_prNumber is { } prNumber)
+                @if (_mainView is { } view)
                 {
-                    <div class="tab active" role="tab" title="@($"Pull Request #{prNumber}")" aria-selected="true">
-                        <MudIcon Icon="@Icons.Material.Filled.CallMerge" Size="Size.Small" />
-                        <span class="tab-name">#@prNumber</span>
+                    <div class="tab active" role="tab" title="@MainViewTitle(view)" aria-selected="true">
+                        <MudIcon Icon="@MainViewIcon(view)" Size="Size.Small" />
+                        <span class="tab-name">@MainViewLabel(view)</span>
                         <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Class="tab-close"
-                                       OnClick="() => _prNumber = null" aria-label="Pull Request schließen" />
+                                       OnClick="() => _mainView = null" aria-label="@($"{MainViewTitle(view)} schließen")" />
                     </div>
                 }
                 @if (DiffFile is { } diff)
                 {
-                    <div class="tab @(_prNumber is null ? "active" : "")" role="tab" title="@($"Änderungen: {diff.Path}")"
-                         aria-selected="@(_prNumber is null)" @onclick="() => _prNumber = null">
+                    <div class="tab @(_mainView is null ? "active" : "")" role="tab" title="@($"Änderungen: {diff.Path}")"
+                         aria-selected="@(_mainView is null)" @onclick="() => _mainView = null">
                         <MudIcon Icon="@Icons.Material.Outlined.Difference" Size="Size.Small" />
                         <span class="tab-name">@diff.Name</span>
                         <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Class="tab-close"
@@ -185,6 +206,10 @@
                          TransformOrigin="Origin.TopRight" aria-label="Dateiaktionen">
                     <MudMenuItem Icon="@Icons.Material.Outlined.Difference" Disabled="!current.IsDirty"
                                  OnClick="() => ShowDiff(current)">Änderungen anzeigen</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Filled.History" Disabled="current.IsNew"
+                                 OnClick="() => ShowMainViewAsync(new FileHistoryMainView(current.Path))">Verlauf dieser Datei</MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Filled.PersonSearch" Disabled="@(current.IsNew || !Browser.IsOnline)"
+                                 OnClick="() => ShowMainViewAsync(new BlameMainView(current.Path))">Zeilenherkunft (Blame)</MudMenuItem>
                     <MudMenuItem Icon="@Icons.Material.Filled.DriveFileRenameOutline" OnClick="RenameActiveAsync">Umbenennen / verschieben</MudMenuItem>
                     <MudMenuItem Icon="@Icons.Material.Filled.Undo" Disabled="!current.IsDirty"
                                  OnClick="() => DiscardAsync(current)">Änderungen verwerfen</MudMenuItem>
@@ -192,6 +217,11 @@
                 </MudMenu>
             }
         </div>
+
+        @if (ShowTouchToolbar)
+        {
+            <TouchToolbar Action="RunToolbarActionAsync" />
+        }
 
         <div class="editor-row @(ActiveFile is null || !EditorVisible ? "hidden" : "")">
             @* Der Editor bleibt immer eingebunden (auch bei "Nur Vorschau"), damit Undo-Verlauf und Modelle erhalten bleiben *@
@@ -207,12 +237,41 @@
             }
         </div>
 
-        @if (_prNumber is { } shownPr)
+        @if (_mainView is PullRequestMainView { Number: var shownPr })
         {
             <div class="editor-host">
                 <PullRequestView Owner="@Owner" Repo="@Name" Number="shownPr" DefaultBranch="@_defaultBranch"
                                  BranchNames="BranchNames" Online="Browser.IsOnline"
                                  OpenBranch="OpenPullRequestBranch" Changed="OnPullRequestChangedAsync" />
+            </div>
+        }
+        else if (_mainView is CommitMainView { Sha: var commitSha })
+        {
+            <div class="editor-host">
+                <CommitView Owner="@Owner" Repo="@Name" Sha="@commitSha" OpenCommit="sha => ShowMainViewAsync(new CommitMainView(sha))" />
+            </div>
+        }
+        else if (_mainView is FileHistoryMainView { Path: var historyPath } && _branch is not null)
+        {
+            <div class="editor-host history-host">
+                <MudText Typo="Typo.subtitle1" Class="mb-2">Verlauf von <code>@historyPath</code></MudText>
+                <CommitList Owner="@Owner" Repo="@Name" Branch="@_branch.Name" Path="@historyPath" HeadSha="@_branch.CommitSha"
+                            Online="Browser.IsOnline" Selected="c => ShowMainViewAsync(new CommitMainView(c.Sha))" />
+            </div>
+        }
+        else if (_mainView is BlameMainView { Path: var blamePath } && _branch is not null)
+        {
+            var blameFile = _openFiles.FirstOrDefault(f => f.Path == blamePath);
+            <div class="editor-host">
+                <BlameView Owner="@Owner" Repo="@Name" Branch="@_branch.Name" Path="@blamePath"
+                           Content="@(blameFile?.OriginalContent ?? "")" HasLocalChanges="@(blameFile?.IsDirty == true)"
+                           OpenCommit="sha => ShowMainViewAsync(new CommitMainView(sha))" />
+            </div>
+        }
+        else if (_mainView is BinaryMainView { Path: var binaryPath })
+        {
+            <div class="editor-host">
+                <BinaryView Owner="@Owner" Repo="@Name" Path="@binaryPath" BlobSha="@_tree?.BlobShas.GetValueOrDefault(binaryPath)" />
             </div>
         }
         else if (DiffFile is not null)
@@ -246,9 +305,10 @@
     private bool _emptyRepo;
     private string _defaultBranch = "";
     private IReadOnlyDictionary<string, int> _localCounts = new Dictionary<string, int>();
-    private int? _prNumber;
+    private MainView? _mainView;
     private int _openPrCount;
     private PullRequestsPanel? _prPanel;
+    private SearchPanel? _searchPanel;
     private string? _error;
     private bool _explorerOpen = true;
     private string? _loadedRepo;
@@ -281,7 +341,7 @@
     private CachedFile? DiffFile => _changes.FirstOrDefault(f => f.Key == _diffKey);
 
     /// <summary>Der Editor ist sichtbar, solange weder ein Pull Request noch ein Diff im Hauptbereich angezeigt wird.</summary>
-    private bool EditorVisible => _prNumber is null && DiffFile is null;
+    private bool EditorVisible => _mainView is null && DiffFile is null;
 
     private IReadOnlyCollection<string> BranchNames => _branches?.Select(b => b.Name).ToList() ?? [];
 
@@ -341,7 +401,12 @@
 
     private IReadOnlySet<string> DirtyPaths => _changes.Where(f => !f.Deleted).Select(f => f.Path).ToHashSet();
 
-    protected override void OnInitialized() => Browser.ConnectivityChanged += OnConnectivityChanged;
+    protected override void OnInitialized()
+    {
+        Browser.ConnectivityChanged += OnConnectivityChanged;
+        Browser.Shortcut += OnShortcut;
+        Settings.Changed += OnConnectivityChanged;
+    }
 
     protected override async Task OnParametersSetAsync()
     {
@@ -467,10 +532,23 @@
         var open = _openFiles.FirstOrDefault(f => f.Path == path);
         if (open is null)
         {
+            // Bilder & Co. gar nicht erst als Text laden, sondern direkt anzeigen
+            if (FileKinds.IsKnownBinary(path))
+            {
+                await ShowMainViewAsync(new BinaryMainView(path));
+                return;
+            }
+
             try
             {
                 open = await RepoData.OpenFileAsync(Owner, Name, _branch.Name, path, _tree.BlobShas.GetValueOrDefault(path));
                 _openFiles.Add(open);
+            }
+            catch (NotSupportedException)
+            {
+                // Unbekannte Endung, aber Binärinhalt (Null-Bytes)
+                await ShowMainViewAsync(new BinaryMainView(path));
+                return;
             }
             catch (Exception ex)
             {
@@ -488,7 +566,7 @@
     {
         _activeKey = key;
         _diffKey = null;
-        _prNumber = null;
+        _mainView = null;
     }
 
     private async Task OnContentChangedAsync((string Key, string Content) change)
@@ -543,7 +621,7 @@
             await _editor.FlushAsync();
         await RefreshChangesAsync();
         _diffKey = file.Key;
-        _prNumber = null;
+        _mainView = null;
         if (await Browser.IsNarrowAsync())
             _explorerOpen = false;
     }
@@ -668,10 +746,28 @@
                 options.NewBranch, options.CreatePullRequest);
             var result = await Commits.CommitAsync(request);
 
-            if (!result.Succeeded && await ConfirmOverwriteAsync(result.Conflicts))
-                result = await Commits.CommitAsync(request with { OverwriteConflicts = true });
             if (!result.Succeeded)
+            {
+                switch (await AskConflictAsync(result.Conflicts))
+                {
+                    case true:
+                        // Zusammenführen; gelingt das ohne Überschneidung, wird gleich erneut committet
+                        if (!await MergeConflictsAsync(result.Conflicts))
+                            return;
+                        result = await Commits.CommitAsync(request with { Changes = _changes });
+                        break;
+                    case false:
+                        result = await Commits.CommitAsync(request with { OverwriteConflicts = true });
+                        break;
+                    default:
+                        return;
+                }
+            }
+            if (!result.Succeeded)
+            {
+                Snackbar.Add("Auf GitHub gibt es schon wieder neue Änderungen an denselben Dateien. Bitte erneut committen.", Severity.Warning);
                 return;
+            }
 
             _changesPanel?.Reset();
             ReportSuccess(result);
@@ -687,17 +783,95 @@
         }
     }
 
-    private async Task<bool> ConfirmOverwriteAsync(IReadOnlyList<string> conflicts)
+    /// <returns>true = zusammenführen, false = eigene Fassung committen, null = abbrechen.</returns>
+    private async Task<bool?> AskConflictAsync(IReadOnlyList<string> conflicts)
     {
         var files = string.Join("", conflicts.Select(c => $"<li><code>{System.Net.WebUtility.HtmlEncode(c)}</code></li>"));
         var message = new MarkupString(
             "<p>Diese Dateien wurden auf GitHub geändert, seit du sie geöffnet hast:</p>" +
             $"<ul style=\"margin: 8px 0 8px 20px\">{files}</ul>" +
-            "<p>Wenn du trotzdem committest, ersetzt deine Fassung die Änderungen auf GitHub. " +
-            "Alternativ verwirfst du deine Änderung an der Datei, lädst damit den neuen Stand und überträgst deine Anpassung erneut.</p>");
+            "<p><b>Zusammenführen</b> übernimmt beide Änderungen. Wo sich dieselben Zeilen überschneiden, " +
+            "markiert CodeSail die Stellen im Editor (&lt;&lt;&lt;&lt;&lt;&lt;&lt;), und du entscheidest selbst.</p>" +
+            "<p><b>Meine Fassung committen</b> ersetzt die Änderungen auf GitHub.</p>");
 
         return await Dialogs.ShowMessageBoxAsync("Konflikt", message,
-            yesText: "Meine Fassung committen", cancelText: "Abbrechen") == true;
+            yesText: "Zusammenführen", noText: "Meine Fassung committen", cancelText: "Abbrechen");
+    }
+
+    /// <summary>Führt die Konfliktdateien zusammen. true, wenn alles automatisch ging und direkt committet werden kann.</summary>
+    private async Task<bool> MergeConflictsAsync(IReadOnlyList<string> conflicts)
+    {
+        var conflicted = _changes.Where(f => conflicts.Contains(f.Path)).ToList();
+        var resolution = await Merges.ResolveAsync(Owner, Name, _branch!.Name, conflicted);
+
+        foreach (var file in resolution.AutoMerged.Concat(resolution.WithConflicts))
+        {
+            var index = _openFiles.FindIndex(f => f.Key == file.Key);
+            if (index < 0)
+                continue;
+            _openFiles[index] = file;
+            if (_editor is not null)
+                await _editor.SetContentAsync(file.Key, file.Content);
+        }
+        await RefreshChangesAsync();
+
+        if (resolution.WithConflicts.Count == 0 && resolution.Unresolved.Count == 0)
+        {
+            Snackbar.Add($"{resolution.AutoMerged.Count} {(resolution.AutoMerged.Count == 1 ? "Datei" : "Dateien")} automatisch zusammengeführt.", Severity.Success);
+            return true;
+        }
+
+        var parts = new List<string>();
+        if (resolution.AutoMerged.Count > 0)
+            parts.Add($"{resolution.AutoMerged.Count} automatisch zusammengeführt");
+        if (resolution.WithConflicts.Count > 0)
+            parts.Add($"in {string.Join(", ", resolution.WithConflicts.Select(f => f.Name))} sind Überschneidungen markiert – " +
+                      "behalte die passende Fassung, entferne die Zeilen <<<<<<<, ======= und >>>>>>> und committe erneut");
+        if (resolution.Unresolved.Count > 0)
+            parts.Add($"{string.Join(", ", resolution.Unresolved)} lässt sich nicht zusammenführen (auf einer Seite neu oder gelöscht) – " +
+                      "wähle dort „Meine Fassung committen“ oder verwirf die Änderung");
+        await Dialogs.ShowMessageBoxAsync("Zusammengeführt mit Konflikten", string.Join(". ", parts) + ".", yesText: "OK");
+
+        // Direkt zur ersten markierten Stelle springen
+        if (resolution.WithConflicts.FirstOrDefault() is { } first)
+        {
+            if (_openFiles.All(f => f.Key != first.Key))
+                _openFiles.Add(first);
+            ActivateTab(first.Key);
+            StateHasChanged();
+            await Task.Delay(100);
+            if (_editor is not null && ThreeWayMerge.FirstConflictLine(first.Content) is { } line)
+                await _editor.GoToAsync(line, 1);
+        }
+        return false;
+    }
+
+    private async Task UpdateBranchFromDefaultAsync(BranchInfo branch)
+    {
+        try
+        {
+            switch (await Merges.UpdateBranchAsync(Owner, Name, branch.Name, _defaultBranch))
+            {
+                case BranchUpdateResult.Updated:
+                    Snackbar.Add($"Neue Commits von {_defaultBranch} in {branch.Name} übernommen.", Severity.Success);
+                    if (branch.Name == _branch?.Name)
+                        await ReloadAsync();
+                    break;
+                case BranchUpdateResult.UpToDate:
+                    Snackbar.Add($"{branch.Name} enthält bereits alles von {_defaultBranch}.", Severity.Info);
+                    break;
+                case BranchUpdateResult.Conflict:
+                    await Dialogs.ShowMessageBoxAsync("Konflikt",
+                        $"Änderungen auf {_defaultBranch} und {branch.Name} überschneiden sich, deshalb kann GitHub sie nicht automatisch zusammenführen. " +
+                        "Löse den Konflikt auf GitHub (im Pull Request unter „Resolve conflicts“) oder übertrage die betroffenen Änderungen von Hand.",
+                        yesText: "OK");
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(GitHubErrors.Describe(ex), Severity.Error);
+        }
     }
 
     private void ReportSuccess(CommitResult result)
@@ -862,7 +1036,7 @@
         {
             var url = await PullRequests.CreateAsync(Owner, Name, request);
             Snackbar.Add("Pull Request erstellt.", Severity.Success);
-            _sidePanel = 3;
+            _sidePanel = PullRequestsTab;
             if (_prPanel is not null)
                 await _prPanel.ReloadAsync();
             if (int.TryParse(url[(url.LastIndexOf('/') + 1)..], out var number))
@@ -874,17 +1048,59 @@
         }
     }
 
-    private async Task ShowPullRequestAsync(int number)
+    private Task ShowPullRequestAsync(int number) => ShowMainViewAsync(new PullRequestMainView(number));
+
+    private async Task ShowMainViewAsync(MainView view)
     {
-        _prNumber = number;
+        _mainView = view;
+        _diffKey = null;
         if (await Browser.IsNarrowAsync())
             _explorerOpen = false;
     }
 
+    private const int FilesTab = 0;
+    private const int SearchTabIndex = 1;
+    private const int ChangesTab = 2;
+    private const int HistoryTab = 3;
+    private const int BranchesTab = 4;
+    private const int PullRequestsTab = 5;
+
+    private static string MainViewLabel(MainView view) => view switch
+    {
+        PullRequestMainView pr => $"#{pr.Number}",
+        CommitMainView c => c.Sha[..Math.Min(7, c.Sha.Length)],
+        BinaryMainView b => FileName(b.Path),
+        FileHistoryMainView h => FileName(h.Path),
+        BlameMainView b => FileName(b.Path),
+        _ => ""
+    };
+
+    private static string MainViewTitle(MainView view) => view switch
+    {
+        PullRequestMainView pr => $"Pull Request #{pr.Number}",
+        CommitMainView c => $"Commit {c.Sha}",
+        BinaryMainView b => b.Path,
+        FileHistoryMainView h => $"Verlauf von {h.Path}",
+        BlameMainView b => $"Zeilenherkunft von {b.Path}",
+        _ => ""
+    };
+
+    private static string MainViewIcon(MainView view) => view switch
+    {
+        PullRequestMainView => Icons.Material.Filled.CallMerge,
+        CommitMainView => Icons.Material.Filled.Commit,
+        BinaryMainView => Icons.Material.Outlined.Image,
+        FileHistoryMainView => Icons.Material.Filled.History,
+        BlameMainView => Icons.Material.Filled.PersonSearch,
+        _ => Icons.Material.Outlined.InsertDriveFile
+    };
+
+    private static string FileName(string path) => path[(path.LastIndexOf('/') + 1)..];
+
     private void OpenPullRequestBranch(string branch)
     {
-        _prNumber = null;
-        _sidePanel = 0;
+        _mainView = null;
+        _sidePanel = FilesTab;
         Nav.NavigateTo(Nav.GetUriWithQueryParameter("branch", branch), replace: true);
     }
 
@@ -919,7 +1135,64 @@
         await OnParametersSetAsync();
     }
 
+    private bool ShowTouchToolbar => EditorVisible && ActiveFile is not null && !(ShowPreview && _previewOnly)
+        && Settings.Settings.TouchToolbar switch
+        {
+            TouchToolbarMode.On => true,
+            TouchToolbarMode.Off => false,
+            _ => Browser.IsTouch
+        };
+
+    private async Task RunToolbarActionAsync(TouchToolbar.ToolbarButton button)
+    {
+        if (_editor is not null && button.ActionId is { } action)
+            await _editor.RunActionAsync(action, button.Payload);
+    }
+
+    private async Task OpenSearchResultAsync((string Path, int Line, int Column) result)
+    {
+        await OpenFileAsync(result.Path);
+        if (_editor is null || ActiveFile?.Path != result.Path)
+            return;
+        StateHasChanged();
+        // Dem Editor Zeit geben, das Modell der Datei anzuzeigen
+        await Task.Delay(100);
+        await _editor.GoToAsync(result.Line, result.Column);
+    }
+
+    private async Task QuickOpenAsync()
+    {
+        if (_displayTree is null)
+            return;
+        var recent = _openFiles.Select(f => f.Path).Reverse().ToList();
+        if (await QuickOpenDialog.ShowAsync(Dialogs, _displayTree.FilePaths, recent) is { } path)
+            await OpenFileAsync(path);
+    }
+
+    private void OnShortcut(string name) => InvokeAsync(async () =>
+    {
+        switch (name)
+        {
+            case "quickOpen":
+                await QuickOpenAsync();
+                break;
+            case "search":
+                _sidePanel = SearchTabIndex;
+                _explorerOpen = true;
+                StateHasChanged();
+                await Task.Yield();
+                if (_searchPanel is not null)
+                    await _searchPanel.FocusAsync();
+                break;
+        }
+    });
+
     private void OnConnectivityChanged() => InvokeAsync(StateHasChanged);
 
-    public void Dispose() => Browser.ConnectivityChanged -= OnConnectivityChanged;
+    public void Dispose()
+    {
+        Browser.ConnectivityChanged -= OnConnectivityChanged;
+        Browser.Shortcut -= OnShortcut;
+        Settings.Changed -= OnConnectivityChanged;
+    }
 }

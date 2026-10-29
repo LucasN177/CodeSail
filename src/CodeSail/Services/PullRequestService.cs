@@ -56,6 +56,34 @@ public sealed class PullRequestService(IGitHubService gitHub)
     public Task SetOpenAsync(string owner, string repo, int number, bool open) =>
         gitHub.SetPullRequestOpenAsync(owner, repo, number, open);
 
+    public Task UpdateAsync(string owner, string repo, int number, string title, string body)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+            throw new InvalidOperationException("Bitte gib einen Titel ein.");
+        return gitHub.UpdatePullRequestAsync(owner, repo, number, title.Trim(), body.Trim());
+    }
+
+    public Task<IReadOnlyList<ConversationItem>> GetConversationAsync(string owner, string repo, int number) =>
+        gitHub.GetConversationAsync(owner, repo, number);
+
+    public Task<CiStatus> GetCiStatusAsync(string owner, string repo, string sha) =>
+        gitHub.GetCiStatusAsync(owner, repo, sha);
+
+    public Task CommentAsync(string owner, string repo, int number, string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            throw new InvalidOperationException("Der Kommentar ist leer.");
+        return gitHub.AddCommentAsync(owner, repo, number, body.Trim());
+    }
+
+    /// <summary>Reicht ein Review ein. Für "Änderungen anfordern" verlangt GitHub eine Begründung.</summary>
+    public Task ReviewAsync(string owner, string repo, int number, ReviewAction action, string body)
+    {
+        if (action != ReviewAction.Approve && string.IsNullOrWhiteSpace(body))
+            throw new InvalidOperationException("Bitte beschreibe, was geändert werden soll.");
+        return gitHub.SubmitReviewAsync(owner, repo, number, action, body.Trim());
+    }
+
     /// <summary>Pull Requests aus Forks haben ihren Branch in einem anderen Repository.</summary>
     public static bool IsSameRepository(string owner, string repo, PullRequestSummary pr) =>
         string.Equals(pr.HeadRepo, $"{owner}/{repo}", StringComparison.OrdinalIgnoreCase);

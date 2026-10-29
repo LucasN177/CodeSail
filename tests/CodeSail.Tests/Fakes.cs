@@ -99,7 +99,12 @@ internal sealed class FakeGitHubService : IGitHubService
     public Task<byte[]> GetBlobAsync(string owner, string name, string blobSha)
     {
         BlobRequests++;
-        return Respond(Blobs[blobSha]);
+        if (Blobs.TryGetValue(blobSha, out var bytes))
+            return Respond(bytes);
+
+        // Simuliertes Repository: Inhalt über die berechnete Blob-SHA finden
+        var content = Commits.Values.SelectMany(c => c.Values).First(f => GitBlobSha.Compute(f.Content) == blobSha).Content;
+        return Respond(System.Text.Encoding.UTF8.GetBytes(content));
     }
 
     // --- Simuliertes Repository für Commit-Tests ---
@@ -245,6 +250,60 @@ internal sealed class FakeGitHubService : IGitHubService
     {
         StateChanges.Add((number, open));
         return Respond(0);
+    }
+
+    public List<(int Number, string Title, string Body)> PullRequestUpdates { get; } = [];
+    public List<ConversationItem> Conversation { get; } = [];
+    public List<(int Number, ReviewAction Action, string Body)> Reviews { get; } = [];
+    public CiStatus Ci { get; set; } = new([], false);
+
+    public Task UpdatePullRequestAsync(string owner, string name, int number, string title, string body)
+    {
+        PullRequestUpdates.Add((number, title, body));
+        return Respond(0);
+    }
+
+    public Task<IReadOnlyList<ConversationItem>> GetConversationAsync(string owner, string name, int number) =>
+        Respond<IReadOnlyList<ConversationItem>>(Conversation.ToList());
+
+    public Task AddCommentAsync(string owner, string name, int number, string body)
+    {
+        Conversation.Add(new ConversationItem(ConversationKind.Comment, "ich", body, DateTimeOffset.UtcNow));
+        return Respond(0);
+    }
+
+    public Task SubmitReviewAsync(string owner, string name, int number, ReviewAction action, string body)
+    {
+        Reviews.Add((number, action, body));
+        return Respond(0);
+    }
+
+    public Task<CiStatus> GetCiStatusAsync(string owner, string name, string sha) => Respond(Ci);
+
+    public List<CommitSummary> CommitLog { get; } = [];
+
+    public Task<IReadOnlyList<CommitSummary>> GetCommitsAsync(string owner, string name, string branch, string? path, int page) =>
+        Respond<IReadOnlyList<CommitSummary>>(CommitLog.Skip((page - 1) * 30).Take(30).ToList());
+
+    public Task<CommitDetails> GetCommitAsync(string owner, string name, string sha) =>
+        Respond(new CommitDetails(new CommitSummary(sha, "Nachricht", "ada", DateTimeOffset.UtcNow), [], 0, 0, [], ""));
+
+    public Task<IReadOnlyList<BlameRange>> GetBlameAsync(string owner, string name, string branch, string path) =>
+        Respond<IReadOnlyList<BlameRange>>([]);
+
+    /// <summary>Ergebnis von MergeBranchAsync: SHA, null (nichts zu tun) oder eine Ausnahme (z. B. 409).</summary>
+    public Func<string?> MergeBranchResult { get; set; } = () => "merge1";
+
+    public Task<string?> MergeBranchAsync(string owner, string name, string baseBranch, string head, string message)
+    {
+        try
+        {
+            return Respond(MergeBranchResult());
+        }
+        catch (Exception ex)
+        {
+            return Task.FromException<string?>(ex);
+        }
     }
 
     private Task<T> Respond<T>(T value) =>

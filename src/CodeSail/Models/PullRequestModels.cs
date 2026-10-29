@@ -55,3 +55,51 @@ public sealed record PullRequestDetails(
 public sealed record PullRequestFile(string Path, string Status, int Additions, int Deletions, string? Patch, string? PreviousPath);
 
 public sealed record NewPullRequest(string Title, string Body, string Head, string Base, bool Draft);
+
+public enum ConversationKind
+{
+    Comment,
+    Review,
+    LineComment
+}
+
+/// <summary>Beitrag in der Unterhaltung eines Pull Requests.</summary>
+/// <param name="ReviewState">Bei Reviews: APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED.</param>
+/// <param name="Path">Bei Zeilenkommentaren: Datei und Zeile.</param>
+public sealed record ConversationItem(
+    ConversationKind Kind,
+    string Author,
+    string Body,
+    DateTimeOffset Date,
+    string? ReviewState = null,
+    string? Path = null,
+    int? Line = null);
+
+public enum ReviewAction
+{
+    Comment,
+    Approve,
+    RequestChanges
+}
+
+public enum CheckState
+{
+    Success,
+    Pending,
+    Failure,
+    Neutral
+}
+
+/// <summary>Einzelner Status-Check bzw. Check-Run (CI) eines Commits.</summary>
+public sealed record CheckItem(string Name, CheckState State, string? Description, string? Url);
+
+/// <param name="MissingPermission">Mindestens eine Quelle war mit diesem Token nicht lesbar (Rechte fehlen).</param>
+public sealed record CiStatus(IReadOnlyList<CheckItem> Items, bool MissingPermission)
+{
+    /// <summary>Gesamtzustand wie auf GitHub: ein Fehler genügt, sonst "läuft", sonst Erfolg.</summary>
+    public CheckState? Overall =>
+        Items.Count == 0 ? null
+        : Items.Any(i => i.State == CheckState.Failure) ? CheckState.Failure
+        : Items.Any(i => i.State == CheckState.Pending) ? CheckState.Pending
+        : CheckState.Success;
+}
